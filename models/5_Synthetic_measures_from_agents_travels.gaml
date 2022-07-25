@@ -55,6 +55,7 @@ global {
 				}
 
 				matrix my_data <- grid_file(path_grid) as_matrix({624, 725});
+				matrix my_data <- matrix(grid_file(path_grid).contents);// as_matrix({624, 725});
 
 				matrix<float> pollution_raster_float <- 0.0 as_matrix({624, 725});
 

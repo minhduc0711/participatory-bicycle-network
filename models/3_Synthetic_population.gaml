@@ -173,6 +173,7 @@ global {
 
 		//
 		loop quart over: quartier {
+			if quart.ID = 52 {
 
 			write("population quartier " + quart.ID);
 			float cyclist_proportion;
@@ -196,12 +197,16 @@ global {
 
 			int number_of_leisures <- int((quart.retired_pop + quart.without_job_pop) * cyclist_proportion);
 
-			float test_ratio <- 0.01;
+			int test_num <- 1;
 			if test_population {
-				number_of_workers <- int(number_of_workers   * test_ratio);
-				number_of_students <- int(number_of_students * test_ratio);
-				number_of_leisures <- int(number_of_leisures * test_ratio);
-				normalized_delivery_number <- int(normalized_delivery_number * test_ratio);
+				// number_of_workers <- int(number_of_workers   * test_ratio);
+				// number_of_students <- int(number_of_students * test_ratio);
+				// number_of_leisures <- int(number_of_leisures * test_ratio);
+				// normalized_delivery_number <- int(normalized_delivery_number * test_ratio);
+				number_of_workers <-          test_num;
+				number_of_students <-         test_num;
+				number_of_leisures <-         test_num;
+				normalized_delivery_number <- test_num;
 			}
 
 			create worker number: number_of_workers{
@@ -299,9 +304,9 @@ global {
 						 residential_place_3.id]
 							 to: file_path + "/delivery_soir.csv" type:"csv" rewrite: false;
 
-				}
+				} 
 			}
-		}
+		}}
 
 		write("Population de cyclistes à " + city + " :");
 		write("nombre de travailleurs : " + length(worker));
@@ -358,6 +363,8 @@ species people skills: [moving] {
 		// À partir d'une location de départ starting_place, choisit une destination parmi la liste destination_to_choose, selon un modèle gravitaire étalonné par adaptative_coeff
 
 		list<float> proba_list;
+//		write destination_to_choose;
+//		write type_of(starting_place);
 		loop build over:destination_to_choose{
 			proba_list << exp(- adaptative_coeff * (starting_place distance_to build));
 		}
@@ -603,9 +610,3 @@ experiment population_generation type: gui {
 		}
 	}
 }
-
-
-
-
-
-
