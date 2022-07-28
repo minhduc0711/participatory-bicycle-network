@@ -72,85 +72,51 @@ global {
 		"gift_shop", "graveyard", "jewish", "memorial", "monument", "museum", "muslim_sunni", "park", "ruins", "stadium", "theatre", "tourist_info", "tower"];
 
 
-	init{
+	init {
+		string includes_dir <- "../includes/" + city + "/";
+		// building contenant les data osm, ign, pois
+		shape_file_buildings <- shape_file(includes_dir + "buildings.shp");
+		shape_file_quartiers <- shape_file(includes_dir + "sectors.shp");
+		//infos de population résidente dans chaque quartier
+		residents_csv_file <- csv_file(includes_dir + "occ_nb.csv", ",");
 
-		if city = "Marseille"{
-			shape_file_buildings <- shape_file("../includes/Marseille/buildings.shp"); // building contenant les data osm, ign, pois
+		matrix data <- matrix(residents_csv_file);
+		create building from: shape_file_buildings with: [id::int(read("id"))] {
 
-			shape_file_quartiers <- shape_file("../includes/Marseille/MARSEILLE_secteurs.shp");
-
-			residents_csv_file <- csv_file("../includes/Marseille//occ_nb_marseille.csv",","); //infos de population résidente dans chaque quartier
-
-			matrix data <- matrix(residents_csv_file);
-			create building from: shape_file_buildings with: [id::int(read("id"))] {
-
-				types <- types_str split_with ",";
-			}
-
-			create quartier from: shape_file_quartiers with: [ID::int(read("CODE_SEC")), name::read("LIB"), centre::int(read("centre"))]{
-				if not (self overlaps world) {
-					do die;
-				}
-
-				active_pop <- int(data[2, ID - 1]); // le nombre de travailleurs logeant dans le quartier = le nombre d'actifs présents dans le quartier à 4am
-				students_pop <- int(data[3, ID - 1]);
-				retired_pop <- int(data[5, ID - 1]);
-				inactive_pop <- int(data[6, ID - 1]);
-				without_job_pop <- int(data[4, ID - 1]);
-
-				float coeff_surface <- (world inter self).area / self.shape.area;
-				write("id : " + ID + " coeff : " + coeff_surface);
-
-				if coeff_surface < 0.98{
-					active_pop <- int(active_pop * coeff_surface);
-					students_pop <- int(students_pop * coeff_surface);
-					retired_pop <- int(retired_pop * coeff_surface);
-					inactive_pop <- int(inactive_pop * coeff_surface);
-					without_job_pop <- int(without_job_pop * coeff_surface);
-				}
-
-				if (centre = 1){
-					centre_ville <- true;
-					color <- #orange;
-				}
-				else{color <- #yellow;}
-			}
+			types <- types_str split_with ",";
 		}
 
-		if city = "Toulouse"{
-			shape_file_buildings <- shape_file("../includes/Toulouse/buildings_with_pois.shp"); // building contenant les data osm, ign, pois
-
-			shape_file_quartiers <- shape_file("../includes/Toulouse/toulouse_secteurs.shp");
-
-			residents_csv_file <- csv_file("../includes/Toulouse/occ_nb_toulouse.csv",",");
-
-			matrix data <- matrix(residents_csv_file);
-			create building from: shape_file_buildings with: [id::int(read("id"))] {
-
-				types <- types_str split_with ",";
+		create quarter from: shape_file_quartiers with: [ID::int(read("CODE_SEC")), name::read("LIB"), centre::int(read("centre"))]{
+			// Ignore the quarters that have very small or no overlap with the region of interest
+			if not (self overlaps world) {
+				do die;
+			}
+			coeff_surface <- (world inter self).area / self.shape.area;
+			if coeff_surface < 0.1 {
+				do die;
 			}
 
-			create quartier from: shape_file_quartiers with: [ID::int(read("CODE_SEC")), name::read("LIB"), centre::int(read("centre"))]{
-				if not (self overlaps world) {
-					do die;
-				}
+			active_pop <- int(data[2, ID - 1]); // le nombre de travailleurs logeant dans le quartier = le nombre d'actifs présents dans le quartier à 4am
+			students_pop <- int(data[3, ID - 1]);
+			retired_pop <- int(data[5, ID - 1]);
+			inactive_pop <- int(data[6, ID - 1]);
+			without_job_pop <- int(data[4, ID - 1]);
 
-				active_pop <- int(data[2, ID - 1]); // le nombre de travailleurs logeant dans le quartier = le nombre d'actifs présents dans le quartier à 4am
-				students_pop <- int(data[3, ID - 1]);
-				retired_pop <- int(data[5, ID - 1]);
-				inactive_pop <- int(data[6, ID - 1]);
-				without_job_pop <- int(data[4, ID - 1]);
+			write("id : " + ID + " coeff : " + coeff_surface);
 
-				float coeff_surface <- (world inter self).area / self.shape.area;
-				write("id : " + ID + " area : " + self.shape.area);
-				write("id : " + ID + " coeff : " + coeff_surface);
-
-				if (centre = 1){
-					centre_ville <- true;
-					color <- #red;
-				}
-				else{color <- #blue;}
+			if coeff_surface < 0.98 {
+				active_pop <- int(active_pop * coeff_surface);
+				students_pop <- int(students_pop * coeff_surface);
+				retired_pop <- int(retired_pop * coeff_surface);
+				inactive_pop <- int(inactive_pop * coeff_surface);
+				without_job_pop <- int(without_job_pop * coeff_surface);
 			}
+
+			if (centre = 1){
+				is_city_centre <- true;
+				color <- #orange;
+			}
+			else{color <- #yellow;}
 		}
 
 		list<building> residential_buildings <- building where (not empty(living_places inter each.types));
@@ -171,49 +137,58 @@ global {
 		string file_path <- "../results/" + city + "/synthetic_population";
 		if test_population{file_path <- file_path + "_test";}
 
-		//
-		loop quart over: quartier {
-			if quart.ID = 52 {
-
+		bool rewrite_csv_workers <- true;
+		bool rewrite_csv_students <- true;
+		bool rewrite_csv_leisure <- true;
+		bool rewrite_csv_delivery_day <- true;
+		bool rewrite_csv_delivery_night <- true;
+		loop quart over: quarter {
 			write("population quartier " + quart.ID);
 			float cyclist_proportion;
 
 			// définition de la proportion de cyclistes parmi la population totale
-			if quart.centre_ville{ // proportion de cyclistes en centre-ville deux fois plus élevée (3.9%) qu'en périphérie (2.2%)
+			if quart.is_city_centre{ // proportion de cyclistes en centre-ville deux fois plus élevée (3.9%) qu'en périphérie (2.2%)
 				cyclist_proportion <- 0.039;
-				normalized_delivery_number <- 2 * int(number_of_delivery / (length(quartier) + length(quartier where each.centre_ville)));
+				normalized_delivery_number <- 2 * int(number_of_delivery / (length(quarter) + length(quarter where each.is_city_centre)));
 			}
 
 			else{
 				cyclist_proportion <- 0.022;
-				normalized_delivery_number <- int(number_of_delivery / (length(quartier) + length(quartier where each.centre_ville)));
+				normalized_delivery_number <- int(number_of_delivery / (length(quarter) + length(quarter where each.is_city_centre)));
 			}
+			// TODO: For some reason, this number did not depend on the `coeff_surface` before
+			normalized_delivery_number <- int(normalized_delivery_number * quart.coeff_surface);
 
 			int number_of_workers;
 			if city = "Marseille"{number_of_workers <- int(quart.active_pop * 0.013);} // source particulière : INSEE
 			if city = "Toulouse"{number_of_workers <- int(quart.active_pop * cyclist_proportion);}
 
 			int number_of_students <- int(quart.students_pop * cyclist_proportion);
-
 			int number_of_leisures <- int((quart.retired_pop + quart.without_job_pop) * cyclist_proportion);
-
-			int test_num <- 1;
+			
+			float test_ratio <- 0.05;
 			if test_population {
-				// number_of_workers <- int(number_of_workers   * test_ratio);
-				// number_of_students <- int(number_of_students * test_ratio);
-				// number_of_leisures <- int(number_of_leisures * test_ratio);
-				// normalized_delivery_number <- int(normalized_delivery_number * test_ratio);
-				number_of_workers <-          test_num;
-				number_of_students <-         test_num;
-				number_of_leisures <-         test_num;
-				normalized_delivery_number <- test_num;
+				number_of_workers <- int(number_of_workers   * test_ratio);
+				number_of_students <- int(number_of_students * test_ratio);
+				number_of_leisures <- int(number_of_leisures * test_ratio);
+				normalized_delivery_number <- int(normalized_delivery_number * test_ratio);
 			}
+			building living_place <- nil;
+			building destination_place <- nil;
+			point starting_loc;
 
-			create worker number: number_of_workers{
+			int int_go;
+			int int_home;
+			int go_out_hour;
+			int go_out_min;
+			int go_home_hour;
+			int go_home_min;
 
-				living_place <- one_of (residential_buildings where (each overlaps quart));
-				location <- any_location_in (living_place);
-
+			list<building> quarter_residential_buildings <- residential_buildings where (each overlaps quart);
+			// Generate worker population
+			loop times: number_of_workers {
+				living_place <- one_of(quarter_residential_buildings);
+				starting_loc <- any_location_in(living_place);
 				destination_place <- rnd_choice(gravitational_model(living_place, work_buildings where (each.location distance_to living_place < 15000 #m), worker_adaptative_coeff));
 
 				int_go <- int(gauss(120, 50)); // distribution gaussienne de l'heure de départ entre 6am et 10am
@@ -224,14 +199,14 @@ global {
 				go_home_hour <- int(int_home / 60) + 15;
 				go_home_min <- int((int_home - (go_home_hour - 15) * 60) / 5) * 5;
 
-				save [go_out_hour, go_out_min, go_home_hour, go_home_min, living_place.id, destination_place.id] to: file_path + "/worker.csv" type:"csv" rewrite: false;
-
+				save [go_out_hour, go_out_min, go_home_hour, go_home_min, living_place.id, destination_place.id] to: file_path + "/worker.csv" type:"csv" rewrite: rewrite_csv_workers;
+				rewrite_csv_workers <- false;
 			}
 
-			create student number: number_of_students {
-				living_place <- one_of (residential_buildings where (each overlaps quart));
-				location <- any_location_in (living_place);
-
+			// Generate student population
+			loop times: number_of_students {
+				living_place <- one_of(quarter_residential_buildings);
+				starting_loc <- any_location_in(living_place);
 				destination_place <- rnd_choice(gravitational_model(living_place, university_buildings where (each.location distance_to living_place < 15000 #m), student_adaptative_coeff));
 
 				int_go <- int(gauss(90, 40));
@@ -242,13 +217,13 @@ global {
 				go_home_hour <- int(int_home / 60) + 15;
 				go_home_min <- int((int_home - (go_home_hour - 15) * 60) / 5) * 5;
 
-				save [go_out_hour, go_out_min, go_home_hour, go_home_min, living_place.id, destination_place.id] to: file_path + "/student.csv" type:"csv" rewrite: false;
+				save [go_out_hour, go_out_min, go_home_hour, go_home_min, living_place.id, destination_place.id] to: file_path + "/student.csv" type:"csv" rewrite: rewrite_csv_students;
 			}
 
-			create leisure number: number_of_leisures {
-				living_place <- one_of (residential_buildings where (each overlaps quart));
-				location <- any_location_in (living_place);
-
+			// Generate 'leisure' population
+			loop times: number_of_leisures {
+				living_place <- one_of(quarter_residential_buildings);
+				location <- any_location_in(living_place);
 				destination_place <- rnd_choice(gravitational_model(living_place, leisure_buildings where (each.location distance_to living_place < 15000 #m), leisure_adaptative_coeff));
 
 				go_out_hour <- rnd(9, 12);
@@ -257,62 +232,75 @@ global {
 				go_home_hour <- rnd(go_out_hour + 2, 21);
 				go_home_min <- rnd(0, 59, 5);
 
-				save [go_out_hour, go_out_min, go_home_hour, go_home_min, living_place.id, destination_place.id] to: file_path + "/leisure.csv" type:"csv" rewrite: false;
+				save [go_out_hour, go_out_min, go_home_hour, go_home_min, living_place.id, destination_place.id] to: file_path + "/leisure.csv" type:"csv" rewrite: rewrite_csv_leisure;
+				rewrite_csv_leisure <- false;
 			}
 
-			create delivery number: normalized_delivery_number {
-				living_place <- one_of (residential_buildings where (each overlaps quart));
-				location <- any_location_in (living_place);
+			// Generate shippers' population
+			building restaurant_1;
+			building restaurant_2;
+			building restaurant_3;
+			building residential_place_1;
+			building residential_place_2;
+			building residential_place_3;
 
-				if(rnd(1.0) <= 0.40){
-					midi <- true;
+			loop times: normalized_delivery_number {
+				living_place <- one_of(quarter_residential_buildings);
+				starting_loc <- any_location_in(living_place);
+				list<building> close_restos <- eat_buildings where (each.location distance_to living_place < 5000 #m);
+				list<building> close_residential_buildings <- residential_buildings where (each.location distance_to living_place < 5000 #m);
 
-					go_out_hour_midi <- rnd(hour_early_delivery_midi_start, hour_late_delivery_midi_start - 1);
-					go_out_min_midi <- rnd(0, 59, 5);
-
-					restaurant_1 <- rnd_choice(gravitational_model(living_place, eat_buildings where (each.location distance_to living_place < 5000 #m), delivery_adaptative_coeff));
-					residential_place_1 <- rnd_choice(gravitational_model(restaurant_1, residential_buildings where (each.location distance_to living_place < 5000 #m), delivery_adaptative_coeff));
-
-					restaurant_2 <- rnd_choice(gravitational_model(residential_place_1, eat_buildings where (each.location distance_to living_place < 5000 #m), delivery_adaptative_coeff));
-					residential_place_2 <- rnd_choice(gravitational_model(restaurant_2, residential_buildings where (each.location distance_to living_place < 5000 #m), delivery_adaptative_coeff));
-
-					restaurant_3 <- rnd_choice(gravitational_model(residential_place_2, eat_buildings where (each.location distance_to living_place < 5000 #m), delivery_adaptative_coeff));
-					residential_place_3 <- rnd_choice(gravitational_model(restaurant_3, residential_buildings where (each.location distance_to living_place < 5000 #m), delivery_adaptative_coeff));
-
-					save [go_out_hour_midi, go_out_min_midi, living_place.id, restaurant_1.id, residential_place_1.id, restaurant_2.id, residential_place_2.id, restaurant_3.id,
-						 residential_place_3.id]
-							 to: file_path + "/delivery_midi.csv" type:"csv" rewrite: false;
-
+				bool is_day <- rnd(1.0) <= 0.40;
+				string delivery_save_path;
+				bool rewrite_delivery_csv;
+				if (is_day) {
+					go_out_hour <- rnd(hour_early_delivery_midi_start, hour_late_delivery_midi_start - 1);
+					go_out_min <- rnd(0, 59, 5);
+					delivery_save_path <- file_path + "/delivery_midi.csv";
+					rewrite_delivery_csv <- rewrite_csv_delivery_day;
+				} else {
+					go_out_hour <- rnd(hour_early_delivery_soir_start, hour_late_delivery_soir_start - 1);
+					go_out_min <- rnd(0, 59, 5);
+					delivery_save_path <- file_path + "/delivery_soir.csv";
+					rewrite_delivery_csv <- rewrite_csv_delivery_night;
 				}
 
-				else {
-					midi <- false;
+				restaurant_1 <- rnd_choice(gravitational_model(living_place, close_restos, delivery_adaptative_coeff));
+				residential_place_1 <- rnd_choice(gravitational_model(restaurant_1, close_residential_buildings, delivery_adaptative_coeff));
 
-					go_out_hour_soir <- rnd(hour_early_delivery_soir_start, hour_late_delivery_soir_start - 1);
-					go_out_min_soir <- rnd(0, 59, 5);
+				restaurant_2 <- rnd_choice(gravitational_model(residential_place_1, close_restos, delivery_adaptative_coeff));
+				residential_place_2 <- rnd_choice(gravitational_model(restaurant_2, close_residential_buildings, delivery_adaptative_coeff));
 
-					restaurant_1 <- rnd_choice(gravitational_model(living_place, eat_buildings where (each.location distance_to living_place < 5000 #m), delivery_adaptative_coeff));
-					residential_place_1 <- rnd_choice(gravitational_model(restaurant_1, residential_buildings where (each.location distance_to living_place < 5000 #m), delivery_adaptative_coeff));
+				restaurant_3 <- rnd_choice(gravitational_model(residential_place_2, close_restos, delivery_adaptative_coeff));
+				residential_place_3 <- rnd_choice(gravitational_model(restaurant_3, close_residential_buildings, delivery_adaptative_coeff));
 
-					restaurant_2 <- rnd_choice(gravitational_model(residential_place_1, eat_buildings where (each.location distance_to living_place < 5000 #m), delivery_adaptative_coeff));
-					residential_place_2 <- rnd_choice(gravitational_model(restaurant_2, residential_buildings where (each.location distance_to living_place < 5000 #m), delivery_adaptative_coeff));
-
-					restaurant_3 <- rnd_choice(gravitational_model(residential_place_2, eat_buildings where (each.location distance_to living_place < 5000 #m), delivery_adaptative_coeff));
-					residential_place_3 <- rnd_choice(gravitational_model(restaurant_3, residential_buildings where (each.location distance_to living_place < 5000 #m), delivery_adaptative_coeff));
-
-					save [go_out_hour_soir, go_out_min_soir, living_place.id, restaurant_1.id, residential_place_1.id, restaurant_2.id, residential_place_2.id, restaurant_3.id,
-						 residential_place_3.id]
-							 to: file_path + "/delivery_soir.csv" type:"csv" rewrite: false;
-
-				} 
+				save [go_out_hour, go_out_min, living_place.id, restaurant_1.id, residential_place_1.id, restaurant_2.id, residential_place_2.id, restaurant_3.id,
+					 residential_place_3.id]
+						 to: delivery_save_path type:"csv" rewrite: rewrite_delivery_csv;
+				if (is_day) {
+					rewrite_csv_delivery_day <- false;
+				} else {
+					rewrite_csv_delivery_night <- false;
+				}
 			}
-		}}
+		}
 
-		write("Population de cyclistes à " + city + " :");
-		write("nombre de travailleurs : " + length(worker));
-		write("nombre d'étudiants : " + length(student));
-		write("nombre d'agents loisir : " + length(leisure));
-		write("nombre d'agents livreurs : " + length(delivery));
+//		write("Population de cyclistes à " + city + " :");
+//		write("nombre de travailleurs : " + length(worker));
+//		write("nombre d'étudiants : " + length(student));
+//		write("nombre d'agents loisir : " + length(leisure));
+//		write("nombre d'agents livreurs : " + length(delivery));
+	}
+
+	map<building, float> gravitational_model(building starting_place,
+			list<building> destination_to_choose, float adaptative_coeff) {
+		// À partir d'une location de départ starting_place, choisit une destination parmi la liste destination_to_choose, selon un modèle gravitaire étalonné par adaptative_coeff
+		list<float> proba_list;
+		loop build over:destination_to_choose{
+			proba_list << exp(- adaptative_coeff * (starting_place distance_to build));
+		}
+
+		return create_map(destination_to_choose, proba_list); // retourne une map avec en clé la liste de buildings candidats, et en valeur la probabilité d'affectation du building
 	}
 }
 
@@ -329,9 +317,11 @@ species building {
 	}
 }
 
-species quartier {
+species quarter {
 	int ID;
 	string name;
+
+	float coeff_surface;
 
 	int active_pop;
 	int students_pop;
@@ -340,7 +330,7 @@ species quartier {
 	int without_job_pop;
 
 	int centre;
-	bool centre_ville; // si true : proportion de vélos 2x plus importante
+	bool is_city_centre; // si true : proportion de vélos 2x plus importante
 
 	rgb color;
 	aspect base {
@@ -348,265 +338,198 @@ species quartier {
 	}
 }
 
-species people skills: [moving] {
-	rgb color;
-	building living_place <- nil;
-	building destination_place <- nil;
-
-	int go_out_hour;
-	int go_out_min;
-	int go_home_hour;
-	int go_home_min;
-
-
-	map<building, float> gravitational_model(building starting_place, list<building> destination_to_choose, float adaptative_coeff){
-		// À partir d'une location de départ starting_place, choisit une destination parmi la liste destination_to_choose, selon un modèle gravitaire étalonné par adaptative_coeff
-
-		list<float> proba_list;
-//		write destination_to_choose;
-//		write type_of(starting_place);
-		loop build over:destination_to_choose{
-			proba_list << exp(- adaptative_coeff * (starting_place distance_to build));
-		}
-
-		return create_map(destination_to_choose, proba_list); // retourne une map avec en clé la liste de buildings candidats, et en valeur la probabilité d'affectation du building
-	}
-
-
-	aspect base{
-		draw circle(6) color: color border: #black;
-	}
-}
-
-species worker parent: people {
-	rgb color <- #black;
-
-	int int_go min: 0 max: 240;
-	int int_home min: 0 max: 240;
-}
-
-species student parent: people{
-	rgb color <- #lightgreen;
-
-	int int_go min: 0 max: 180;
-	int int_home min: 0 max: 180;
-}
-
-species leisure parent: people{
-	rgb color <- #pink;
-}
-
-species delivery parent: people{
-	building restaurant_1;
-	building restaurant_2;
-	building restaurant_3;
-
-	building residential_place_1;
-	building residential_place_2;
-	building residential_place_3;
-
-	bool midi;
-
-	int go_out_hour_midi;
-	int go_out_min_midi;
-
-	int go_out_hour_soir;
-	int go_out_min_soir;
-
-	rgb color <- #red;
-}
-
 experiment population_generation type: gui {
 	output{
 
-		display quartiers{
-			species quartier;
+		display quarters {
+			species quarter;
 			//species building;
 		}
 
-		display travel_distance {
-			chart "Distribution de la distance de trajet des travailleurs" type: histogram background: #lightgrey size: {0.5, 0.5} position: {0, 0}{
-				data "0 - 1 km" value: worker count (each.living_place distance_to each.destination_place < 1000 #m) color: #blue;
-
-				data "1 - 2 km" value: worker count (each.living_place distance_to each.destination_place >= 1000 #m and each.living_place distance_to each.destination_place < 2000 #m) color: #blue;
-
-				data "2 - 3 km" value: worker count (each.living_place distance_to each.destination_place >= 2000 #m and each.living_place distance_to each.destination_place < 3000 #m) color: #blue;
-
-				data "3 - 4 km" value: worker count (each.living_place distance_to each.destination_place >= 3000 #m and each.living_place distance_to each.destination_place < 4000 #m) color: #blue;
-
-				data "4 - 5 km" value: worker count (each.living_place distance_to each.destination_place >= 4000 #m and each.living_place distance_to each.destination_place < 5000 #m) color: #blue;
-
-				data "5 - 6 km" value: worker count (each.living_place distance_to each.destination_place >= 5000 #m and each.living_place distance_to each.destination_place < 6000 #m) color: #blue;
-
-				data "6 - 7 km" value: worker count (each.living_place distance_to each.destination_place >= 6000 #m and each.living_place distance_to each.destination_place < 7000 #m) color: #blue;
-
-				data "7 - 8 km" value: worker count (each.living_place distance_to each.destination_place >= 7000 #m and each.living_place distance_to each.destination_place < 8000 #m) color: #blue;
-
-				data "8 - 9 km" value: worker count (each.living_place distance_to each.destination_place >= 8000 #m and each.living_place distance_to each.destination_place < 9000 #m) color: #blue;
-
-				data "9 - 10 km" value: worker count (each.living_place distance_to each.destination_place >= 9000 #m and each.living_place distance_to each.destination_place < 10000 #m) color: #blue;
-
-				data "10 - 11 km" value: worker count (each.living_place distance_to each.destination_place >= 10000 #m and each.living_place distance_to each.destination_place < 11000 #m) color: #blue;
-
-				data "11 - 12 km" value: worker count (each.living_place distance_to each.destination_place >= 11000 #m and each.living_place distance_to each.destination_place < 12000 #m) color: #blue;
-
-				data "12 - 13 km" value: worker count (each.living_place distance_to each.destination_place >= 12000 #m and each.living_place distance_to each.destination_place < 13000 #m) color: #blue;
-
-				data "13 - 14 km" value: worker count (each.living_place distance_to each.destination_place >= 13000 #m and each.living_place distance_to each.destination_place < 14000 #m) color: #blue;
-
-				data "14 - 15 km" value: worker count (each.living_place distance_to each.destination_place >= 14000 #m and each.living_place distance_to each.destination_place < 15000 #m) color: #blue;
-
-				data "15 - 16 km" value: worker count (each.living_place distance_to each.destination_place >= 15000 #m and each.living_place distance_to each.destination_place < 16000 #m) color: #blue;
-
-				data "16 - 17 km" value: worker count (each.living_place distance_to each.destination_place >= 16000 #m and each.living_place distance_to each.destination_place < 17000 #m) color: #blue;
-
-				data "17 - 18 km" value: worker count (each.living_place distance_to each.destination_place >= 17000 #m and each.living_place distance_to each.destination_place < 18000 #m) color: #blue;
-
-				data "18 - 19 km" value: worker count (each.living_place distance_to each.destination_place >= 18000 #m and each.living_place distance_to each.destination_place < 19000 #m) color: #blue;
-
-				data "19 - 20 km" value: worker count (each.living_place distance_to each.destination_place >= 19000 #m and each.living_place distance_to each.destination_place < 20000 #m) color: #blue;
-			}
-
-			chart "Distribution de la distance de trajet des étudiants" type: histogram background: #lightgrey size: {0.5, 0.5} position: {0, 0.5}{
-				data "0 - 1 km" value: student count (each.living_place distance_to each.destination_place < 1000 #m) color: #blue;
-
-				data "1 - 2 km" value: student count (each.living_place distance_to each.destination_place >= 1000 #m and each.living_place distance_to each.destination_place < 2000 #m) color: #blue;
-
-				data "2 - 3 km" value: student count (each.living_place distance_to each.destination_place >= 2000 #m and each.living_place distance_to each.destination_place < 3000 #m) color: #blue;
-
-				data "3 - 4 km" value: student count (each.living_place distance_to each.destination_place >= 3000 #m and each.living_place distance_to each.destination_place < 4000 #m) color: #blue;
-
-				data "4 - 5 km" value: student count (each.living_place distance_to each.destination_place >= 4000 #m and each.living_place distance_to each.destination_place < 5000 #m) color: #blue;
-
-				data "5 - 6 km" value: student count (each.living_place distance_to each.destination_place >= 5000 #m and each.living_place distance_to each.destination_place < 6000 #m) color: #blue;
-
-				data "6 - 7 km" value: student count (each.living_place distance_to each.destination_place >= 6000 #m and each.living_place distance_to each.destination_place < 7000 #m) color: #blue;
-
-				data "7 - 8 km" value: student count (each.living_place distance_to each.destination_place >= 7000 #m and each.living_place distance_to each.destination_place < 8000 #m) color: #blue;
-
-				data "8 - 9 km" value: student count (each.living_place distance_to each.destination_place >= 8000 #m and each.living_place distance_to each.destination_place < 9000 #m) color: #blue;
-
-				data "9 - 10 km" value: student count (each.living_place distance_to each.destination_place >= 9000 #m and each.living_place distance_to each.destination_place < 10000 #m) color: #blue;
-
-				data "10 - 11 km" value: student count (each.living_place distance_to each.destination_place >= 10000 #m and each.living_place distance_to each.destination_place < 11000 #m) color: #blue;
-
-				data "11 - 12 km" value: student count (each.living_place distance_to each.destination_place >= 11000 #m and each.living_place distance_to each.destination_place < 12000 #m) color: #blue;
-
-				data "12 - 13 km" value: student count (each.living_place distance_to each.destination_place >= 12000 #m and each.living_place distance_to each.destination_place < 13000 #m) color: #blue;
-
-				data "13 - 14 km" value: student count (each.living_place distance_to each.destination_place >= 13000 #m and each.living_place distance_to each.destination_place < 14000 #m) color: #blue;
-
-				data "14 - 15 km" value: student count (each.living_place distance_to each.destination_place >= 14000 #m and each.living_place distance_to each.destination_place < 15000 #m) color: #blue;
-
-				data "15 - 16 km" value: student count (each.living_place distance_to each.destination_place >= 15000 #m and each.living_place distance_to each.destination_place < 16000 #m) color: #blue;
-
-				data "16 - 17 km" value: student count (each.living_place distance_to each.destination_place >= 16000 #m and each.living_place distance_to each.destination_place < 17000 #m) color: #blue;
-
-				data "17 - 18 km" value: student count (each.living_place distance_to each.destination_place >= 17000 #m and each.living_place distance_to each.destination_place < 18000 #m) color: #blue;
-
-				data "18 - 19 km" value: student count (each.living_place distance_to each.destination_place >= 18000 #m and each.living_place distance_to each.destination_place < 19000 #m) color: #blue;
-
-				data "19 - 20 km" value: student count (each.living_place distance_to each.destination_place >= 19000 #m and each.living_place distance_to each.destination_place < 20000 #m) color: #blue;
-			}
-
-			chart "Distribution de la distance de trajet des leisure" type: histogram background: #lightgrey size: {0.5, 0.5} position: {0.5, 0}{
-				data "0 - 1 km" value: leisure count (each.living_place distance_to each.destination_place < 1000 #m) color: #blue;
-
-				data "1 - 2 km" value: leisure count (each.living_place distance_to each.destination_place >= 1000 #m and each.living_place distance_to each.destination_place < 2000 #m) color: #blue;
-
-				data "2 - 3 km" value: leisure count (each.living_place distance_to each.destination_place >= 2000 #m and each.living_place distance_to each.destination_place < 3000 #m) color: #blue;
-
-				data "3 - 4 km" value: leisure count (each.living_place distance_to each.destination_place >= 3000 #m and each.living_place distance_to each.destination_place < 4000 #m) color: #blue;
-
-				data "4 - 5 km" value: leisure count (each.living_place distance_to each.destination_place >= 4000 #m and each.living_place distance_to each.destination_place < 5000 #m) color: #blue;
-
-				data "5 - 6 km" value: leisure count (each.living_place distance_to each.destination_place >= 5000 #m and each.living_place distance_to each.destination_place < 6000 #m) color: #blue;
-
-				data "6 - 7 km" value: leisure count (each.living_place distance_to each.destination_place >= 6000 #m and each.living_place distance_to each.destination_place < 7000 #m) color: #blue;
-
-				data "7 - 8 km" value: leisure count (each.living_place distance_to each.destination_place >= 7000 #m and each.living_place distance_to each.destination_place < 8000 #m) color: #blue;
-
-				data "8 - 9 km" value: leisure count (each.living_place distance_to each.destination_place >= 8000 #m and each.living_place distance_to each.destination_place < 9000 #m) color: #blue;
-
-				data "9 - 10 km" value: leisure count (each.living_place distance_to each.destination_place >= 9000 #m and each.living_place distance_to each.destination_place < 10000 #m) color: #blue;
-
-				data "10 - 11 km" value: leisure count (each.living_place distance_to each.destination_place >= 10000 #m and each.living_place distance_to each.destination_place < 11000 #m) color: #blue;
-
-				data "11 - 12 km" value: leisure count (each.living_place distance_to each.destination_place >= 11000 #m and each.living_place distance_to each.destination_place < 12000 #m) color: #blue;
-
-				data "12 - 13 km" value: leisure count (each.living_place distance_to each.destination_place >= 12000 #m and each.living_place distance_to each.destination_place < 13000 #m) color: #blue;
-
-				data "13 - 14 km" value: leisure count (each.living_place distance_to each.destination_place >= 13000 #m and each.living_place distance_to each.destination_place < 14000 #m) color: #blue;
-
-				data "14 - 15 km" value: leisure count (each.living_place distance_to each.destination_place >= 14000 #m and each.living_place distance_to each.destination_place < 15000 #m) color: #blue;
-
-				data "15 - 16 km" value: leisure count (each.living_place distance_to each.destination_place >= 15000 #m and each.living_place distance_to each.destination_place < 16000 #m) color: #blue;
-
-				data "16 - 17 km" value: leisure count (each.living_place distance_to each.destination_place >= 16000 #m and each.living_place distance_to each.destination_place < 17000 #m) color: #blue;
-
-				data "17 - 18 km" value: leisure count (each.living_place distance_to each.destination_place >= 17000 #m and each.living_place distance_to each.destination_place < 18000 #m) color: #blue;
-
-				data "18 - 19 km" value: leisure count (each.living_place distance_to each.destination_place >= 18000 #m and each.living_place distance_to each.destination_place < 19000 #m) color: #blue;
-
-				data "19 - 20 km" value: leisure count (each.living_place distance_to each.destination_place >= 19000 #m and each.living_place distance_to each.destination_place < 20000 #m) color: #blue;
-			}
-
-			chart "Distance moyenne des trajets en fonction du motif" type: histogram background: #lightgrey size: {0.5, 0.5} position: {0.5, 0.5} {
-				list<float> travel_distance;
-
-				if(length(worker) != 0){
-					loop work over: worker{
-						travel_distance << work.living_place distance_to work.destination_place;
-					}
-					data "Travail" value: sum(travel_distance) / length(worker) color: #blue;
-				}
-
-				if(length(student) != 0){
-					travel_distance <- [];
-					loop stud over: student{
-						travel_distance << stud.living_place distance_to stud.destination_place;
-					}
-					data "Etude" value: sum(travel_distance) / length(student) color: #blue;
-				}
-
-				if(length(leisure) != 0){
-					travel_distance <- [];
-					loop leis over: leisure{
-						travel_distance << leis.living_place distance_to leis.destination_place;
-					}
-					data "Loisir" value: sum(travel_distance) / length(leisure) color: #blue;
-				}
-
-				if (length(delivery) != 0){
-					travel_distance <- [];
-					loop deli over: delivery {
-						travel_distance << deli.living_place distance_to deli.restaurant_1;
-					}
-					data "Distance domicile / restaurant 1" value: sum(travel_distance) / length(delivery) color: #blue;
-
-					travel_distance <- [];
-					loop deli over: delivery {
-						travel_distance << deli.restaurant_1 distance_to deli.residential_place_1;
-					}
-					data "Distance resto1 / resi1" value: sum(travel_distance) / length(delivery) color: #blue;
-				}
-			}
-		}
-
-		display hour_travel {
-			chart "Distribution de l'heure de départ des agents worker" type: histogram background: #lightgrey size: {0.5, 0.5} position: {0, 0}{
-				loop i from: 0 to: 240 step: 5{
-					int hour_go <- int(i / 60);
-					data string(i) value: worker count (each.go_out_hour = int(i / 60) + 6 and each.go_out_min = int((i - (each.go_out_hour - 6) * 60) / 5) * 5) color: #blue;
-				}
-			}
-
-			chart "Distribution de l'heure de départ des agents student" type: histogram background: #lightgrey size: {0.5, 0.5} position: {0.5, 0.5}{
-				loop i from: 0 to: 180 step: 5{
-					int hour_go <- int(i / 60);
-					data string(i) value: student count (each.go_out_hour = int(i / 60) + 6 and each.go_out_min = int((i - (each.go_out_hour - 6) * 60) / 5) * 5) color: #blue;
-				}
-			}
-		}
+		// TODO: fix these plots
+//		display travel_distance {
+//			chart "Distribution de la distance de trajet des travailleurs" type: histogram background: #lightgrey size: {0.5, 0.5} position: {0, 0}{
+//				data "0 - 1 km" value: worker count (each.living_place distance_to each.destination_place < 1000 #m) color: #blue;
+//
+//				data "1 - 2 km" value: worker count (each.living_place distance_to each.destination_place >= 1000 #m and each.living_place distance_to each.destination_place < 2000 #m) color: #blue;
+//
+//				data "2 - 3 km" value: worker count (each.living_place distance_to each.destination_place >= 2000 #m and each.living_place distance_to each.destination_place < 3000 #m) color: #blue;
+//
+//				data "3 - 4 km" value: worker count (each.living_place distance_to each.destination_place >= 3000 #m and each.living_place distance_to each.destination_place < 4000 #m) color: #blue;
+//
+//				data "4 - 5 km" value: worker count (each.living_place distance_to each.destination_place >= 4000 #m and each.living_place distance_to each.destination_place < 5000 #m) color: #blue;
+//
+//				data "5 - 6 km" value: worker count (each.living_place distance_to each.destination_place >= 5000 #m and each.living_place distance_to each.destination_place < 6000 #m) color: #blue;
+//
+//				data "6 - 7 km" value: worker count (each.living_place distance_to each.destination_place >= 6000 #m and each.living_place distance_to each.destination_place < 7000 #m) color: #blue;
+//
+//				data "7 - 8 km" value: worker count (each.living_place distance_to each.destination_place >= 7000 #m and each.living_place distance_to each.destination_place < 8000 #m) color: #blue;
+//
+//				data "8 - 9 km" value: worker count (each.living_place distance_to each.destination_place >= 8000 #m and each.living_place distance_to each.destination_place < 9000 #m) color: #blue;
+//
+//				data "9 - 10 km" value: worker count (each.living_place distance_to each.destination_place >= 9000 #m and each.living_place distance_to each.destination_place < 10000 #m) color: #blue;
+//
+//				data "10 - 11 km" value: worker count (each.living_place distance_to each.destination_place >= 10000 #m and each.living_place distance_to each.destination_place < 11000 #m) color: #blue;
+//
+//				data "11 - 12 km" value: worker count (each.living_place distance_to each.destination_place >= 11000 #m and each.living_place distance_to each.destination_place < 12000 #m) color: #blue;
+//
+//				data "12 - 13 km" value: worker count (each.living_place distance_to each.destination_place >= 12000 #m and each.living_place distance_to each.destination_place < 13000 #m) color: #blue;
+//
+//				data "13 - 14 km" value: worker count (each.living_place distance_to each.destination_place >= 13000 #m and each.living_place distance_to each.destination_place < 14000 #m) color: #blue;
+//
+//				data "14 - 15 km" value: worker count (each.living_place distance_to each.destination_place >= 14000 #m and each.living_place distance_to each.destination_place < 15000 #m) color: #blue;
+//
+//				data "15 - 16 km" value: worker count (each.living_place distance_to each.destination_place >= 15000 #m and each.living_place distance_to each.destination_place < 16000 #m) color: #blue;
+//
+//				data "16 - 17 km" value: worker count (each.living_place distance_to each.destination_place >= 16000 #m and each.living_place distance_to each.destination_place < 17000 #m) color: #blue;
+//
+//				data "17 - 18 km" value: worker count (each.living_place distance_to each.destination_place >= 17000 #m and each.living_place distance_to each.destination_place < 18000 #m) color: #blue;
+//
+//				data "18 - 19 km" value: worker count (each.living_place distance_to each.destination_place >= 18000 #m and each.living_place distance_to each.destination_place < 19000 #m) color: #blue;
+//
+//				data "19 - 20 km" value: worker count (each.living_place distance_to each.destination_place >= 19000 #m and each.living_place distance_to each.destination_place < 20000 #m) color: #blue;
+//			}
+//
+//			chart "Distribution de la distance de trajet des étudiants" type: histogram background: #lightgrey size: {0.5, 0.5} position: {0, 0.5}{
+//				data "0 - 1 km" value: student count (each.living_place distance_to each.destination_place < 1000 #m) color: #blue;
+//
+//				data "1 - 2 km" value: student count (each.living_place distance_to each.destination_place >= 1000 #m and each.living_place distance_to each.destination_place < 2000 #m) color: #blue;
+//
+//				data "2 - 3 km" value: student count (each.living_place distance_to each.destination_place >= 2000 #m and each.living_place distance_to each.destination_place < 3000 #m) color: #blue;
+//
+//				data "3 - 4 km" value: student count (each.living_place distance_to each.destination_place >= 3000 #m and each.living_place distance_to each.destination_place < 4000 #m) color: #blue;
+//
+//				data "4 - 5 km" value: student count (each.living_place distance_to each.destination_place >= 4000 #m and each.living_place distance_to each.destination_place < 5000 #m) color: #blue;
+//
+//				data "5 - 6 km" value: student count (each.living_place distance_to each.destination_place >= 5000 #m and each.living_place distance_to each.destination_place < 6000 #m) color: #blue;
+//
+//				data "6 - 7 km" value: student count (each.living_place distance_to each.destination_place >= 6000 #m and each.living_place distance_to each.destination_place < 7000 #m) color: #blue;
+//
+//				data "7 - 8 km" value: student count (each.living_place distance_to each.destination_place >= 7000 #m and each.living_place distance_to each.destination_place < 8000 #m) color: #blue;
+//
+//				data "8 - 9 km" value: student count (each.living_place distance_to each.destination_place >= 8000 #m and each.living_place distance_to each.destination_place < 9000 #m) color: #blue;
+//
+//				data "9 - 10 km" value: student count (each.living_place distance_to each.destination_place >= 9000 #m and each.living_place distance_to each.destination_place < 10000 #m) color: #blue;
+//
+//				data "10 - 11 km" value: student count (each.living_place distance_to each.destination_place >= 10000 #m and each.living_place distance_to each.destination_place < 11000 #m) color: #blue;
+//
+//				data "11 - 12 km" value: student count (each.living_place distance_to each.destination_place >= 11000 #m and each.living_place distance_to each.destination_place < 12000 #m) color: #blue;
+//
+//				data "12 - 13 km" value: student count (each.living_place distance_to each.destination_place >= 12000 #m and each.living_place distance_to each.destination_place < 13000 #m) color: #blue;
+//
+//				data "13 - 14 km" value: student count (each.living_place distance_to each.destination_place >= 13000 #m and each.living_place distance_to each.destination_place < 14000 #m) color: #blue;
+//
+//				data "14 - 15 km" value: student count (each.living_place distance_to each.destination_place >= 14000 #m and each.living_place distance_to each.destination_place < 15000 #m) color: #blue;
+//
+//				data "15 - 16 km" value: student count (each.living_place distance_to each.destination_place >= 15000 #m and each.living_place distance_to each.destination_place < 16000 #m) color: #blue;
+//
+//				data "16 - 17 km" value: student count (each.living_place distance_to each.destination_place >= 16000 #m and each.living_place distance_to each.destination_place < 17000 #m) color: #blue;
+//
+//				data "17 - 18 km" value: student count (each.living_place distance_to each.destination_place >= 17000 #m and each.living_place distance_to each.destination_place < 18000 #m) color: #blue;
+//
+//				data "18 - 19 km" value: student count (each.living_place distance_to each.destination_place >= 18000 #m and each.living_place distance_to each.destination_place < 19000 #m) color: #blue;
+//
+//				data "19 - 20 km" value: student count (each.living_place distance_to each.destination_place >= 19000 #m and each.living_place distance_to each.destination_place < 20000 #m) color: #blue;
+//			}
+//
+//			chart "Distribution de la distance de trajet des leisure" type: histogram background: #lightgrey size: {0.5, 0.5} position: {0.5, 0}{
+//				data "0 - 1 km" value: leisure count (each.living_place distance_to each.destination_place < 1000 #m) color: #blue;
+//
+//				data "1 - 2 km" value: leisure count (each.living_place distance_to each.destination_place >= 1000 #m and each.living_place distance_to each.destination_place < 2000 #m) color: #blue;
+//
+//				data "2 - 3 km" value: leisure count (each.living_place distance_to each.destination_place >= 2000 #m and each.living_place distance_to each.destination_place < 3000 #m) color: #blue;
+//
+//				data "3 - 4 km" value: leisure count (each.living_place distance_to each.destination_place >= 3000 #m and each.living_place distance_to each.destination_place < 4000 #m) color: #blue;
+//
+//				data "4 - 5 km" value: leisure count (each.living_place distance_to each.destination_place >= 4000 #m and each.living_place distance_to each.destination_place < 5000 #m) color: #blue;
+//
+//				data "5 - 6 km" value: leisure count (each.living_place distance_to each.destination_place >= 5000 #m and each.living_place distance_to each.destination_place < 6000 #m) color: #blue;
+//
+//				data "6 - 7 km" value: leisure count (each.living_place distance_to each.destination_place >= 6000 #m and each.living_place distance_to each.destination_place < 7000 #m) color: #blue;
+//
+//				data "7 - 8 km" value: leisure count (each.living_place distance_to each.destination_place >= 7000 #m and each.living_place distance_to each.destination_place < 8000 #m) color: #blue;
+//
+//				data "8 - 9 km" value: leisure count (each.living_place distance_to each.destination_place >= 8000 #m and each.living_place distance_to each.destination_place < 9000 #m) color: #blue;
+//
+//				data "9 - 10 km" value: leisure count (each.living_place distance_to each.destination_place >= 9000 #m and each.living_place distance_to each.destination_place < 10000 #m) color: #blue;
+//
+//				data "10 - 11 km" value: leisure count (each.living_place distance_to each.destination_place >= 10000 #m and each.living_place distance_to each.destination_place < 11000 #m) color: #blue;
+//
+//				data "11 - 12 km" value: leisure count (each.living_place distance_to each.destination_place >= 11000 #m and each.living_place distance_to each.destination_place < 12000 #m) color: #blue;
+//
+//				data "12 - 13 km" value: leisure count (each.living_place distance_to each.destination_place >= 12000 #m and each.living_place distance_to each.destination_place < 13000 #m) color: #blue;
+//
+//				data "13 - 14 km" value: leisure count (each.living_place distance_to each.destination_place >= 13000 #m and each.living_place distance_to each.destination_place < 14000 #m) color: #blue;
+//
+//				data "14 - 15 km" value: leisure count (each.living_place distance_to each.destination_place >= 14000 #m and each.living_place distance_to each.destination_place < 15000 #m) color: #blue;
+//
+//				data "15 - 16 km" value: leisure count (each.living_place distance_to each.destination_place >= 15000 #m and each.living_place distance_to each.destination_place < 16000 #m) color: #blue;
+//
+//				data "16 - 17 km" value: leisure count (each.living_place distance_to each.destination_place >= 16000 #m and each.living_place distance_to each.destination_place < 17000 #m) color: #blue;
+//
+//				data "17 - 18 km" value: leisure count (each.living_place distance_to each.destination_place >= 17000 #m and each.living_place distance_to each.destination_place < 18000 #m) color: #blue;
+//
+//				data "18 - 19 km" value: leisure count (each.living_place distance_to each.destination_place >= 18000 #m and each.living_place distance_to each.destination_place < 19000 #m) color: #blue;
+//
+//				data "19 - 20 km" value: leisure count (each.living_place distance_to each.destination_place >= 19000 #m and each.living_place distance_to each.destination_place < 20000 #m) color: #blue;
+//			}
+//
+//			chart "Distance moyenne des trajets en fonction du motif" type: histogram background: #lightgrey size: {0.5, 0.5} position: {0.5, 0.5} {
+//				list<float> travel_distance;
+//
+//				if(length(worker) != 0){
+//					loop work over: worker{
+//						travel_distance << work.living_place distance_to work.destination_place;
+//					}
+//					data "Travail" value: sum(travel_distance) / length(worker) color: #blue;
+//				}
+//
+//				if(length(student) != 0){
+//					travel_distance <- [];
+//					loop stud over: student{
+//						travel_distance << stud.living_place distance_to stud.destination_place;
+//					}
+//					data "Etude" value: sum(travel_distance) / length(student) color: #blue;
+//				}
+//
+//				if(length(leisure) != 0){
+//					travel_distance <- [];
+//					loop leis over: leisure{
+//						travel_distance << leis.living_place distance_to leis.destination_place;
+//					}
+//					data "Loisir" value: sum(travel_distance) / length(leisure) color: #blue;
+//				}
+//
+//				if (length(delivery) != 0){
+//					travel_distance <- [];
+//					loop deli over: delivery {
+//						travel_distance << deli.living_place distance_to deli.restaurant_1;
+//					}
+//					data "Distance domicile / restaurant 1" value: sum(travel_distance) / length(delivery) color: #blue;
+//
+//					travel_distance <- [];
+//					loop deli over: delivery {
+//						travel_distance << deli.restaurant_1 distance_to deli.residential_place_1;
+//					}
+//					data "Distance resto1 / resi1" value: sum(travel_distance) / length(delivery) color: #blue;
+//				}
+//			}
+//		}
+//
+//		display hour_travel {
+//			chart "Distribution de l'heure de départ des agents worker" type: histogram background: #lightgrey size: {0.5, 0.5} position: {0, 0}{
+//				loop i from: 0 to: 240 step: 5{
+//					int hour_go <- int(i / 60);
+//					data string(i) value: worker count (each.go_out_hour = int(i / 60) + 6 and each.go_out_min = int((i - (each.go_out_hour - 6) * 60) / 5) * 5) color: #blue;
+//				}
+//			}
+//
+//			chart "Distribution de l'heure de départ des agents student" type: histogram background: #lightgrey size: {0.5, 0.5} position: {0.5, 0.5}{
+//				loop i from: 0 to: 180 step: 5{
+//					int hour_go <- int(i / 60);
+//					data string(i) value: student count (each.go_out_hour = int(i / 60) + 6 and each.go_out_min = int((i - (each.go_out_hour - 6) * 60) / 5) * 5) color: #blue;
+//				}
+//			}
+//		}
 	}
 }
