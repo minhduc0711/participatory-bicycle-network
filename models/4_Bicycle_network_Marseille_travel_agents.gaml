@@ -43,6 +43,7 @@ global {
 	float step <- time_step #s;
 
 	date starting_date <- date(2021, 5, 27, 5, 30);
+	date stopping_date <- date(2021, 5, 29, 23, 0);
 
 	float bicycle_speed <- 10 #km / #h;
 
@@ -50,7 +51,7 @@ global {
 
 	map<road,float> road_weights;
 
-	reflex save_trips when: current_date.hour = 23 and current_date.minute = 55{
+	action save_trips {
 
 		list<position_agent> list_of_positions_aller_workers;
 		list<position_agent> list_of_positions_retour_workers;
@@ -113,7 +114,9 @@ global {
 
 	}
 
-	reflex stop_simulation when: current_date.hour = 23 and current_date.minute = 55 {
+	reflex stop_simulation when: current_date = stopping_date {
+		write "Simulation has reached the ending date of " + stopping_date;
+		do save_trips;
 		do pause;
 	}
 
@@ -344,11 +347,10 @@ species people skills: [moving] {
 			the_target <- nil;
 			is_on_road <- false;
 			if (objective = "working"){
-				date_of_arriving_dest <- date(2021, 5, 27, current_date.hour, current_date.minute, current_date.second);
-
+				date_of_arriving_dest <- copy(current_date);
 			}
 			if (objective = "resting"){
-				date_of_arriving_home <- date(2021, 5, 27, current_date.hour, current_date.minute, current_date.second);
+				date_of_arriving_home <- copy(current_date);
 			}
 		}
 
