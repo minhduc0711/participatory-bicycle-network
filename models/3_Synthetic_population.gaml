@@ -102,8 +102,6 @@ global {
 			inactive_pop <- int(data[6, ID - 1]);
 			without_job_pop <- int(data[4, ID - 1]);
 
-			write("id : " + ID + " coeff : " + coeff_surface);
-
 			if coeff_surface < 0.98 {
 				active_pop <- int(active_pop * coeff_surface);
 				students_pop <- int(students_pop * coeff_surface);
@@ -143,7 +141,9 @@ global {
 		bool rewrite_csv_delivery_day <- true;
 		bool rewrite_csv_delivery_night <- true;
 		loop quart over: quarter {
-			write("population quartier " + quart.ID);
+			write("quartier " + quart.ID);
+			write("Surface coeff: " + quart.coeff_surface);
+
 			float cyclist_proportion;
 
 			// définition de la proportion de cyclistes parmi la population totale
@@ -165,7 +165,7 @@ global {
 
 			int number_of_students <- int(quart.students_pop * cyclist_proportion);
 			int number_of_leisures <- int((quart.retired_pop + quart.without_job_pop) * cyclist_proportion);
-			
+
 			float test_ratio <- 0.05;
 			if test_population {
 				number_of_workers <- int(number_of_workers   * test_ratio);
@@ -173,6 +173,10 @@ global {
 				number_of_leisures <- int(number_of_leisures * test_ratio);
 				normalized_delivery_number <- int(normalized_delivery_number * test_ratio);
 			}
+			write sample(number_of_workers);
+			write sample(number_of_students);
+			write sample(number_of_leisures);
+			write sample(normalized_delevery_number);
 			building living_place <- nil;
 			building destination_place <- nil;
 			point starting_loc;
@@ -191,13 +195,13 @@ global {
 				starting_loc <- any_location_in(living_place);
 				destination_place <- rnd_choice(gravitational_model(living_place, work_buildings where (each.location distance_to living_place < 15000 #m), worker_adaptative_coeff));
 
-				int_go <- int(gauss(120, 50)); // distribution gaussienne de l'heure de départ entre 6am et 10am
-				go_out_hour <- int(int_go / 60) + 6;
-				go_out_min <- int((int_go - (go_out_hour - 6) * 60) / 5) * 5;
+				date go_out_date <- date("06:00", "HH:mm") add_minutes int(gauss(120, 50));
+				go_out_hour <- go_out_date.hour;
+				go_out_min <- go_out_date.minute;
 
-				int_home <- int(gauss(120, 50));
-				go_home_hour <- int(int_home / 60) + 15;
-				go_home_min <- int((int_home - (go_home_hour - 15) * 60) / 5) * 5;
+				date go_home_date <- date("15:00", "HH:mm") add_minutes int(gauss(120, 50));
+				go_home_hour <- go_home_date.hour;
+				go_home_min <- go_home_date.minute;
 
 				save [go_out_hour, go_out_min, go_home_hour, go_home_min, living_place.id, destination_place.id] to: file_path + "/worker.csv" type:"csv" rewrite: rewrite_csv_workers;
 				rewrite_csv_workers <- false;
@@ -209,15 +213,18 @@ global {
 				starting_loc <- any_location_in(living_place);
 				destination_place <- rnd_choice(gravitational_model(living_place, university_buildings where (each.location distance_to living_place < 15000 #m), student_adaptative_coeff));
 
-				int_go <- int(gauss(90, 40));
-				go_out_hour <- int(int_go / 60) + 6;
-				go_out_min <- int((int_go - (go_out_hour - 6) * 60) / 5) * 5;
+				date go_out_date <- date("06:00", "HH:mm") add_minutes int(gauss(90, 40));
+				go_out_hour <- go_out_date.hour;
+				go_out_min <- go_out_date.minute;
+				// TODO: tf are these back and forth conversions doing?
+				// go_out_min <- int((int_go - (go_out_hour - 6) * 60) / 5) * 5;
 
-				int_home <- int(gauss(90, 40));
-				go_home_hour <- int(int_home / 60) + 15;
-				go_home_min <- int((int_home - (go_home_hour - 15) * 60) / 5) * 5;
+				date go_home_date <- date("15:00", "HH:mm") add_minutes int(gauss(90, 40));
+				go_home_hour <- go_home_date.hour;
+				go_home_min <- go_home_date.minute;
 
 				save [go_out_hour, go_out_min, go_home_hour, go_home_min, living_place.id, destination_place.id] to: file_path + "/student.csv" type:"csv" rewrite: rewrite_csv_students;
+				rewrite_csv_students <- false;
 			}
 
 			// Generate 'leisure' population
