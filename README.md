@@ -36,9 +36,9 @@ The input data of the project is in the `includes` folder and the model codes ar
 1. Run [6_Environment_for_measures.gaml](models/6_Environment_for_measures.gaml) to generate environmental data with a radius of 50m for every measure point, in order to use for predict pollution levels in unexplored areas.
     * The results of each measure's environment is saved in `results/Marseille/environment_of_measures_N_sensors.csv`.
 
-1. The models [7_Measures_to_predict.gaml](models/7_Measures_to_predict.gaml) and [8_Environment_for_measures_to_predict.gaml](models/8_Environment_for_measures_to_predict.gaml) generate environmental data for trips we want to predict the pollution.
+1. The models [7_Measures_to_predict.gaml](models/7_Measures_to_predict.gaml) and [8_Environment_for_measures_to_predict.gaml](models/8_Environment_for_measures_to_predict.gaml) generate test data.
     * They are randomly chosen in the set of trips already generated.
-    * The results of each measure to predict is saved in `results/Marseille/measures_to_predict.csv`, and the environment for the prediction is saved in `../results/Marseille/environment_of_measures_to_predict.csv`
+    * The target values (pollution measurements) are saved in `results/Marseille/measures_to_predict.csv`, and the environmental features is saved in `results/Marseille/environment_of_measures_to_predict.csv`
 
 1. Create land use regression (LUR) models using the generated enviromental features coupled with temporal indicators to predict pollution levels.
     * **However I could not achieve this step**: the regression I performed in the model [9_Regression_and_prediction.gaml](models/9_Regression_and_prediction.gaml) realizes a regression using the least squares method and then use it to predict the pollution level in places where other cyclist agents (the last quarter of cyclists for whom pollution was not measured) will go. This methods does not seem optimal. However, some suggestions are made in the Perspectives section of the report.
