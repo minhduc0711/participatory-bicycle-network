@@ -176,7 +176,7 @@ global {
 			write sample(number_of_workers);
 			write sample(number_of_students);
 			write sample(number_of_leisures);
-			write sample(normalized_delevery_number);
+			write sample(normalized_delivery_number);
 			building living_place <- nil;
 			building destination_place <- nil;
 			point starting_loc;
