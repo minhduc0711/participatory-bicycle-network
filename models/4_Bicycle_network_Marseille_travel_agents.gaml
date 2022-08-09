@@ -66,10 +66,10 @@ global {
 			}
 		}
 
-		save list_of_positions_aller_workers to: "../results/Marseille/worker/aller_worker/positions_aller_worker.shp" type: shp
+		save list_of_positions_aller_workers to: "../results/Marseille/worker/positions_aller.shp" type: shp
 			attributes: ["time"::date_of_presence, "agent"::name_of_agent] crs: "2154";
 
-		save list_of_positions_retour_workers to: "../results/Marseille/worker/retour_worker/positions_retour_worker.shp" type: shp
+		save list_of_positions_retour_workers to: "../results/Marseille/worker/positions_retour.shp" type: shp
 			attributes: ["time"::date_of_presence, "agent"::name_of_agent] crs: "2154";
 
 
@@ -86,10 +86,10 @@ global {
 			}
 		}
 
-		save list_of_positions_aller_students to: "../results/Marseille/student/aller_student/positions_aller_student.shp" type: shp
+		save list_of_positions_aller_students to: "../results/Marseille/student/positions_aller.shp" type: shp
 			attributes: ["time"::date_of_presence, "agent"::name_of_agent] crs: "2154";
 
-		save list_of_positions_retour_students to: "../results/Marseille/student/retour_student/positions_retour_student.shp" type: shp
+		save list_of_positions_retour_students to: "../results/Marseille/student/positions_retour.shp" type: shp
 			attributes: ["time"::date_of_presence, "agent"::name_of_agent] crs: "2154";
 
 
@@ -106,10 +106,10 @@ global {
 			}
 		}
 
-		save list_of_positions_aller_leisures to: "../results/Marseille/leisure/aller_leisure/positions_aller_leisure.shp" type: shp
+		save list_of_positions_aller_leisures to: "../results/Marseille/leisure/positions_aller.shp" type: shp
 			attributes: ["time"::date_of_presence, "agent"::name_of_agent] crs: "2154";
 
-		save list_of_positions_retour_leisures to: "../results/Marseille/leisure/retour_leisure/positions_retour_leisure.shp" type: shp
+		save list_of_positions_retour_leisures to: "../results/Marseille/leisure/positions_retour.shp" type: shp
 			attributes: ["time"::date_of_presence, "agent"::name_of_agent] crs: "2154";
 
 	}

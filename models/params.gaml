@@ -11,6 +11,7 @@ model params
 
 
 global {
+	float seed <- 42.0;
 	string city <- "Marseille";
 
 	bool test_population <- true; // permet de générer une population test 20 fois moins peuplée que la population réelle
@@ -29,5 +30,4 @@ global {
 	int number_of_sensors <- 50; //represente le nombre de cyclistes équipés de capteurs dans la ville
 
 	int number_of_test_travels <- 5; //represente le nombre de cyclistes dont les niveaux de pollution rencontrés seront prédits
-
 }
