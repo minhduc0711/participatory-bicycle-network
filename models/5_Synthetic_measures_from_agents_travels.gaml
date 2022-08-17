@@ -27,6 +27,7 @@ global {
 	float max_y <- 6254412.50000;
 
 	int compteur_ID <- 0;
+	list<string> files_written;
 
 	init {
 		map<string, map<string, field>> pollution_raster_map <- map<string, map<string, field>>([
@@ -67,7 +68,7 @@ global {
 					date ts_date <- date(timestamp, "yyyyMMddHH");
 					// TODO: rm the 2nd condition when generating trips for 3 days
 					if ext = "tif" and ts_date.day = 27 {
-						write "Reading from " + fname;
+						write "Reading pollution raster: " + fname;
 						field f <- field(grid_file(raster_dir_path + fname));
 						pollution_raster_map[pol_type][timestamp] <- f;
 					}
@@ -94,64 +95,65 @@ global {
 					// just to make sure everything sum up to number_of_sensors
 					n <- number_of_sensors - sum(people_with_sensors collect length(each));
 				}
-				people_with_sensors[population] <- n among range(0, population_sizes[population]);
+				people_with_sensors[population] <- n among range(0, population_sizes[population] - 1);
 				write("Number of " + population + "s with sensors: " + n);
 			}
 		}
 
-		bool rewrite <- true;
 		loop population over: is_population_measured.keys {
-
 			if is_population_measured[population] {
 				write "generating measures for " + population;
 
 				// TODO: why do measures need to be seperated in two directions?
 				loop direction over: ["aller", "retour"] {
-					string pos_shp_path <- "../results/Marseille/" + population + "/positions_" + direction + ".shp";
-					create measure from: shape_file(pos_shp_path) with: [time_of_measure::(read("time")),
-							name_of_agent::(read('agent'))]{
-						int agent_id <- int((((name_of_agent split_with '[')[1]) split_with ']')[0]);
-						if !entire_population and !(agent_id in people_with_sensors[population]) {
-							do die;
-						}
+					string pos_csv_path <- "../results/Marseille/" + population + "/positions_" + direction + ".csv";
+					matrix table <- matrix(csv_file(pos_csv_path));
+					loop i from: 1 to: table.rows - 1 {
+						string name_of_agent <- table[0, i];
+						int agent_id <- int(regex_matches(name_of_agent, "\\d+")[0]);
+						if entire_population or (agent_id in people_with_sensors[population]) {
+							int ID <- compteur_ID;
+							compteur_ID <- compteur_ID + 1;
 
-						ID <- compteur_ID;
-						compteur_ID <- compteur_ID + 1;
+							float lon <- table[2, i];
+							float lat <- table[3, i];
+							// TODO: Not sure how to automate this conversion,
+							// and I don't understand why we divide by 25 either
+							int cell_x <- int((lon - min_x) / 25);
+							int cell_y <- int((max_y - lat) / 25);
 
-						geometry CRS_2154 <- location CRS_transform("EPSG:2154");
+							// Linearly interpolate the concentration value at
+							// arbitrary timestamp using the 2 closest hourly values
+							date d <- date(table[1, i]);
+							date d0 <- d minus_minutes d.minute minus_seconds d.second;
+							date d1 <- d0 add_hours 1;
+							string t0 <- world.convert_date_to_str(d0);
+							string t1 <- world.convert_date_to_str(d1);
 
-						list<string> coord <- string(CRS_2154) split_with ",";
-
-						latitude <- float(coord[1]);
-						longitude <- float((coord[0] split_with "{")[0]);
-
-						int cell_x <- int((longitude - min_x) / 25);
-						int cell_y <- int((max_y - latitude) / 25);
-
-						// Linearly interpolate the concentration value at
-						// arbitrary timestamp using the 2 closest hourly values
-						date d <- time_of_measure;
-						date d0 <- d minus_minutes d.minute minus_seconds d.second;
-						date d1 <- d0 add_hours 1;
-						string t0 <- world.convert_date_to_str(d0);
-						string t1 <- world.convert_date_to_str(d1);
-
-						loop pol_type over: is_pollutant_measured.keys {
-							if is_pollutant_measured[pol_type] {
-								float p0 <- pollution_raster_map[pol_type][t0][cell_x, cell_y];
-								float p1 <- pollution_raster_map[pol_type][t1][cell_x, cell_y];
-								self.conc_map[pol_type] <- world.interp(d, d0, d1, p0, p1);
+							map<string, float> conc_map <- [
+								"NO2"::-1.0, "O3"::-1.0, "PM10"::-1.0, "PM25"::-1.0
+							];
+							loop pol_type over: is_pollutant_measured.keys {
+								if is_pollutant_measured[pol_type] {
+									float p0 <- pollution_raster_map[pol_type][t0][cell_x, cell_y];
+									float p1 <- pollution_raster_map[pol_type][t1][cell_x, cell_y];
+									conc_map[pol_type] <- world.interp(d, d0, d1, p0, p1);
+								}
 							}
+							string save_path <- entire_population ?
+								"../results/Marseille/student/measures_" + population + ".csv" :
+								"../results/Marseille/measures_" + number_of_sensors + ".csv";
+							// Rewrite the existing CSV files first
+							bool rewrite <- false;
+							if !(files_written contains save_path) {
+								rewrite <- true;
+								add save_path to: files_written;
+							}
+							save [ID, name_of_agent, lon, lat, string(d),
+								conc_map["NO2"], conc_map["O3"], conc_map["PM10"], conc_map["PM25"]]
+									to: save_path type: "csv" rewrite: rewrite;
 						}
-
-						string save_path <- entire_population ? "../results/Marseille/student/measures_student.csv" :
-							"../results/Marseille/measures_" + number_of_sensors + ".csv";
-						save [ID, name_of_agent, longitude, latitude, string(time_of_measure),
-							conc_map["NO2"], conc_map["O3"], conc_map["PM10"], conc_map["PM25"]]
-								to: save_path type: "csv" rewrite: rewrite;
-						rewrite <- false;
 					}
-					ask measure{ do die; }
 				}
 			}
 		}
@@ -207,5 +209,4 @@ species leisure parent: people{
 }
 
 experiment synthetic_measures type: gui {
-
 }

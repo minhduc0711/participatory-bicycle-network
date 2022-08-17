@@ -35,6 +35,7 @@ global {
 	file delivery_midi_csv;
 
 	file delivery_soir_csv;
+	list<string> files_written;
 
 	geometry shape <- envelope(bound);
 
@@ -51,75 +52,10 @@ global {
 
 	map<road,float> road_weights;
 
-	action save_trips {
-
-		list<position_agent> list_of_positions_aller_workers;
-		list<position_agent> list_of_positions_retour_workers;
-
-		ask worker {
-			loop pos over: list_of_positions_aller{
-				list_of_positions_aller_workers << pos;
-			}
-
-			loop pos over: list_of_positions_retour{
-				list_of_positions_retour_workers << pos;
-			}
-		}
-
-		save list_of_positions_aller_workers to: "../results/Marseille/worker/positions_aller.shp" type: shp
-			attributes: ["time"::date_of_presence, "agent"::name_of_agent] crs: "2154";
-
-		save list_of_positions_retour_workers to: "../results/Marseille/worker/positions_retour.shp" type: shp
-			attributes: ["time"::date_of_presence, "agent"::name_of_agent] crs: "2154";
-
-
-		list<position_agent> list_of_positions_aller_students;
-		list<position_agent> list_of_positions_retour_students;
-
-		ask student {
-			loop pos over: list_of_positions_aller{
-				list_of_positions_aller_students << pos;
-			}
-
-			loop pos over: list_of_positions_retour{
-				list_of_positions_retour_students << pos;
-			}
-		}
-
-		save list_of_positions_aller_students to: "../results/Marseille/student/positions_aller.shp" type: shp
-			attributes: ["time"::date_of_presence, "agent"::name_of_agent] crs: "2154";
-
-		save list_of_positions_retour_students to: "../results/Marseille/student/positions_retour.shp" type: shp
-			attributes: ["time"::date_of_presence, "agent"::name_of_agent] crs: "2154";
-
-
-		list<position_agent> list_of_positions_aller_leisures;
-		list<position_agent> list_of_positions_retour_leisures;
-
-		ask leisure {
-			loop pos over: list_of_positions_aller{
-				list_of_positions_aller_leisures << pos;
-			}
-
-			loop pos over: list_of_positions_retour{
-				list_of_positions_retour_leisures << pos;
-			}
-		}
-
-		save list_of_positions_aller_leisures to: "../results/Marseille/leisure/positions_aller.shp" type: shp
-			attributes: ["time"::date_of_presence, "agent"::name_of_agent] crs: "2154";
-
-		save list_of_positions_retour_leisures to: "../results/Marseille/leisure/positions_retour.shp" type: shp
-			attributes: ["time"::date_of_presence, "agent"::name_of_agent] crs: "2154";
-
-	}
-
 	reflex stop_simulation when: current_date = stopping_date {
 		write "Simulation has reached the ending date of " + stopping_date;
-		do save_trips;
 		do pause;
 	}
-
 
 	init{
 		shape_file_buildings <- shape_file("../includes/Marseille/buildings.shp"); // building contenant les data osm, ign, pois
@@ -256,6 +192,7 @@ species road  {
 
 species people skills: [moving] {
 	rgb color;
+	string positions_save_dir;
 
 	int id_living_place;
 	int id_destination_place;
@@ -328,20 +265,9 @@ species people skills: [moving] {
 	reflex move when: the_target != nil {
 		point current_location <- location;
 
-		create position_agent{
-			location <- current_location;
-			date_of_presence <- current_date;
-			name_of_agent <- string(myself);
-		}
-
-		if objective = "working"{
-			list_of_positions_aller << last(position_agent);
-		}
-		if objective = "resting"{
-			list_of_positions_retour << last(position_agent);
-		}
-
 		path_followed <- goto(target: the_target, on: the_graph, return_path: true);
+
+		do log_position;
 
 		if the_target = location {
 			the_target <- nil;
@@ -353,7 +279,31 @@ species people skills: [moving] {
 				date_of_arriving_home <- copy(current_date);
 			}
 		}
+	}
 
+	// Log the current position & date to a CSV file
+	action log_position {
+		string positions_save_path;
+		if objective = "working"{
+			positions_save_path <- positions_save_dir + "positions_aller.csv";
+		} else if objective = "resting" {
+			positions_save_path <- positions_save_dir + "positions_retour.csv";
+		}
+
+		// Rewrite the existing CSV files first
+		bool rewrite <- false;
+		if !(files_written contains positions_save_path) {
+			rewrite <- true;
+			add positions_save_path to: files_written;
+		}
+
+		point pt_2154 <- CRS_transform(location, "2154");
+		float lon <- pt_2154.x;
+		float lat <- pt_2154.y;
+		string agent_name <- string(self);
+		string date_of_presence <- string(current_date);
+		save [agent_name, date_of_presence, lon, lat] to: positions_save_path type: "csv"
+			rewrite: rewrite;
 	}
 
 	aspect base{
@@ -363,14 +313,17 @@ species people skills: [moving] {
 
 species worker parent: people {
 	rgb color <- #black;
+	string positions_save_dir <- "../results/" + city + "/worker/";
 }
 
 species student parent: people{
 	rgb color <- #green;
+	string positions_save_dir <- "../results/" + city + "/student/";
 }
 
 species leisure parent: people{
 	rgb color <- #pink;
+	string positions_save_dir <- "../results/" + city + "/leisure/";
 }
 
 species position_agent {
@@ -382,7 +335,7 @@ species position_agent {
 experiment bike_traffic type: gui {
 
 	output{
-		display city_display type: opengl{
+		display city_display type: opengl {
 			//species building aspect: base;
 			species road aspect: base;
 			species worker aspect: base;
