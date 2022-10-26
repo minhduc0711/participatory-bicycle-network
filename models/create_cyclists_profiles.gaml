@@ -20,7 +20,7 @@ import "params.gaml"
 
 global {
 
-	file bound <- shape_file("../includes/" + city + "/boundary_" + city + ".shp");
+	file shape_file_bounds <- shape_file(bounds_path);
 
 	file shape_file_buildings; // building contenant les data osm, ign, pois
 
@@ -28,7 +28,7 @@ global {
 
 	file residents_csv_file; // fichier contenant le nombre de résidents pour chaque quartier, importé de Mobiliscope
 
-	geometry shape <- envelope(bound);
+	geometry shape <- envelope(shape_file_bounds);
 
 	// Etalonnage d'un modèle gravitaire pour fixer les trajets des agents (leur destination): + le coeff est grand + les trajets sont courts
 	float worker_adaptative_coeff <- 0.00083;  // distance moyenne : 2000 m
@@ -73,12 +73,11 @@ global {
 
 
 	init {
-		string includes_dir <- "../includes/" + city + "/";
 		// building contenant les data osm, ign, pois
-		shape_file_buildings <- shape_file(includes_dir + "buildings.shp");
-		shape_file_quartiers <- shape_file(includes_dir + "sectors.shp");
+		shape_file_buildings <- shape_file(cleaned_buildings_path);
+		shape_file_quartiers <- shape_file(includes_dir + "shapefiles/sectors.shp");
 		//infos de population résidente dans chaque quartier
-		residents_csv_file <- csv_file(includes_dir + "occ_nb.csv", ",");
+		residents_csv_file <- csv_file(includes_dir + "population/occ_nb.csv", ",");
 
 		matrix data <- matrix(residents_csv_file);
 		create building from: shape_file_buildings with: [id::int(read("id"))] {
@@ -132,9 +131,6 @@ global {
 		if city = "Marseille"{number_of_delivery <- 850;}
 		if city = "Toulouse"{number_of_delivery <- 570;}
 
-		string file_path <- "../results/" + city + "/synthetic_population";
-		if test_population{file_path <- file_path + "_test";}
-
 		bool rewrite_csv_workers <- true;
 		bool rewrite_csv_students <- true;
 		bool rewrite_csv_leisure <- true;
@@ -160,8 +156,15 @@ global {
 			normalized_delivery_number <- int(normalized_delivery_number * quart.coeff_surface);
 
 			int number_of_workers;
-			if city = "Marseille"{number_of_workers <- int(quart.active_pop * 0.013);} // source particulière : INSEE
-			if city = "Toulouse"{number_of_workers <- int(quart.active_pop * cyclist_proportion);}
+			if city = "Marseille" {
+				// source particulière : INSEE
+				number_of_workers <- int(quart.active_pop * 0.013);
+			} else if city = "Toulouse" {
+				number_of_workers <- int(quart.active_pop * cyclist_proportion);
+			//TODO: find statistics for Aix, 0.02 is a totally random number
+			} else {
+				number_of_workers <- int(quart.active_pop * 0.02);
+			}
 
 			int number_of_students <- int(quart.students_pop * cyclist_proportion);
 			int number_of_leisures <- int((quart.retired_pop + quart.without_job_pop) * cyclist_proportion);
@@ -193,7 +196,9 @@ global {
 			loop times: number_of_workers {
 				living_place <- one_of(quarter_residential_buildings);
 				starting_loc <- any_location_in(living_place);
-				destination_place <- rnd_choice(gravitational_model(living_place, work_buildings where (each.location distance_to living_place < 15000 #m), worker_adaptative_coeff));
+				map<building, float> possible_dst_places <- gravitational_model(living_place, work_buildings where (each.location distance_to living_place < 15000 #m), worker_adaptative_coeff);
+				remove key: living_place from: possible_dst_places;
+				destination_place <- rnd_choice(possible_dst_places);
 
 				date go_out_date <- date("06:00", "HH:mm") add_minutes int(gauss(120, 50));
 				go_out_hour <- go_out_date.hour;
@@ -203,7 +208,7 @@ global {
 				go_home_hour <- go_home_date.hour;
 				go_home_min <- go_home_date.minute;
 
-				save [go_out_hour, go_out_min, go_home_hour, go_home_min, living_place.id, destination_place.id] to: file_path + "/worker.csv" type:"csv" rewrite: rewrite_csv_workers;
+				save [go_out_hour, go_out_min, go_home_hour, go_home_min, living_place.id, destination_place.id] to: population_csv_dir + "/worker.csv" type:"csv" rewrite: rewrite_csv_workers;
 				rewrite_csv_workers <- false;
 			}
 
@@ -211,7 +216,9 @@ global {
 			loop times: number_of_students {
 				living_place <- one_of(quarter_residential_buildings);
 				starting_loc <- any_location_in(living_place);
-				destination_place <- rnd_choice(gravitational_model(living_place, university_buildings where (each.location distance_to living_place < 15000 #m), student_adaptative_coeff));
+				map<building, float> possible_dst_places <- gravitational_model(living_place, university_buildings where (each.location distance_to living_place < 15000 #m), student_adaptative_coeff);
+				remove key: living_place from: possible_dst_places;
+				destination_place <- rnd_choice(possible_dst_places);
 
 				date go_out_date <- date("06:00", "HH:mm") add_minutes int(gauss(90, 40));
 				go_out_hour <- go_out_date.hour;
@@ -223,7 +230,7 @@ global {
 				go_home_hour <- go_home_date.hour;
 				go_home_min <- go_home_date.minute;
 
-				save [go_out_hour, go_out_min, go_home_hour, go_home_min, living_place.id, destination_place.id] to: file_path + "/student.csv" type:"csv" rewrite: rewrite_csv_students;
+				save [go_out_hour, go_out_min, go_home_hour, go_home_min, living_place.id, destination_place.id] to: population_csv_dir + "/student.csv" type:"csv" rewrite: rewrite_csv_students;
 				rewrite_csv_students <- false;
 			}
 
@@ -231,7 +238,9 @@ global {
 			loop times: number_of_leisures {
 				living_place <- one_of(quarter_residential_buildings);
 				location <- any_location_in(living_place);
-				destination_place <- rnd_choice(gravitational_model(living_place, leisure_buildings where (each.location distance_to living_place < 15000 #m), leisure_adaptative_coeff));
+				map<building, float> possible_dst_places <- gravitational_model(living_place, leisure_buildings where (each.location distance_to living_place < 15000 #m), student_adaptative_coeff);
+				remove key: living_place from: possible_dst_places;
+				destination_place <- rnd_choice(possible_dst_places);
 
 				go_out_hour <- rnd(9, 12);
 				go_out_min <- rnd(0, 59, 5);
@@ -239,7 +248,7 @@ global {
 				go_home_hour <- rnd(go_out_hour + 2, 21);
 				go_home_min <- rnd(0, 59, 5);
 
-				save [go_out_hour, go_out_min, go_home_hour, go_home_min, living_place.id, destination_place.id] to: file_path + "/leisure.csv" type:"csv" rewrite: rewrite_csv_leisure;
+				save [go_out_hour, go_out_min, go_home_hour, go_home_min, living_place.id, destination_place.id] to: population_csv_dir + "/leisure.csv" type:"csv" rewrite: rewrite_csv_leisure;
 				rewrite_csv_leisure <- false;
 			}
 
@@ -263,12 +272,12 @@ global {
 				if (is_day) {
 					go_out_hour <- rnd(hour_early_delivery_midi_start, hour_late_delivery_midi_start - 1);
 					go_out_min <- rnd(0, 59, 5);
-					delivery_save_path <- file_path + "/delivery_midi.csv";
+					delivery_save_path <- population_csv_dir + "/delivery_midi.csv";
 					rewrite_delivery_csv <- rewrite_csv_delivery_day;
 				} else {
 					go_out_hour <- rnd(hour_early_delivery_soir_start, hour_late_delivery_soir_start - 1);
 					go_out_min <- rnd(0, 59, 5);
-					delivery_save_path <- file_path + "/delivery_soir.csv";
+					delivery_save_path <- population_csv_dir + "/delivery_soir.csv";
 					rewrite_delivery_csv <- rewrite_csv_delivery_night;
 				}
 

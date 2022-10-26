@@ -15,48 +15,31 @@ model switch_utilities_gis
  *
  *
  */
+import "params.gaml"
 
 global {
-
-	string city <- "Marseille";
-
-	string dataset_path <- "../includes/" + city + "/";
-
-	//define the bounds of the studied area
-	file data_file <-shape_file(dataset_path + "boundary_" + city + ".shp");
-
+	file shape_file_bounds <- shape_file(bounds_path);
 	//define the initial building shapefile, extracted from OSM database
-	file shape_file_buildings <- shape_file(dataset_path + "buildings_" + city + ".shp");
-
+	file shape_file_buildings_osm <- shape_file(includes_shp_dir + "buildings_osm.shp");
 	//define the OSM points of interest buildings, for more types
-	file shape_file_pois <- shape_file("../includes/" + city + "/points_of_interest.shp");
-
+	file shape_file_buildings_poi <- shape_file(includes_shp_dir + "buildings_poi.shp");
 	//define the building shapefile with many types, extracted from IGN database
-	file ign_file <-  shape_file(dataset_path + "buildings_ign.shp");
-
+	file shape_file_buildings_ign <- shape_file(includes_shp_dir + "buildings_ign.shp");
 	//define the initial building shapefile, extracted from OSM database
-	file shape_file_roads <- shape_file(dataset_path + "roads_" + city + ".shp");
+	file shape_file_roads <- shape_file(includes_shp_dir + "roads_osm.shp");
 
 
 	list<string> shop_places <- ["commercial", "kiosk", "chapel", "church", "service", "Commercial et services", "Religieux", "religious"];
 	list<string> sport_places <- ["Sportif"];
-
-	float min_area_buildings <- 20.0;
-	int nb_for_building_shapefile_split <- 50000;
-	int nb_for_road_shapefile_split <- 20000;
-
 	list<string> living_places <- ["house", "apartments", "dormitory", "hotel", "residential", "Résidentiel"];
 	list<string> work_places <- ["industrial", "office", "construction", "garages", "hospital"];
 	list<string> study_places <- ["university", "college", "school"];
 	list<string> leisure_places <- ["commercial", "kiosk", "chapel", "church", "service", "Sportif", "Commercial et services", "Religieux", "religious"];
 
+	float min_area_buildings <- 20.0;
 	bool parallel <- true;
 
-	bool buildings <- false;
-	bool roads <- true;
-
-
-	geometry shape <- envelope(data_file);
+	geometry shape <- envelope(shape_file_bounds);
 
 	graph the_graph;
 
@@ -64,11 +47,12 @@ global {
 
 	init {
 		write "Start the pre-processing process";
+		create boundary from: shape_file_bounds;
 
 		list<int> list_of_id;
-		if buildings{
-			create Building from: shape_file_buildings with: [type::get ("type"), id::int(get("osm_id"))]{
-				if not (self overlaps world) {
+		if !file_exists(cleaned_buildings_path) {
+			create building from: shape_file_buildings_osm with: [type::get ("type"), id::int(get("osm_id"))]{
+				if !(self overlaps boundary[0]) {
 					do die;
 				}
 				list_of_id << id;
@@ -77,27 +61,25 @@ global {
 				}
 			}
 
-			write "Number of buildings created : "+ length(Building);
 
-			ask Building where (each.shape.area < min_area_buildings) {
+			ask building where (each.shape.area < min_area_buildings) {
 				do die;
 			}
 
-			write "Small building removed";
+			write "Number of buildings created : "+ length(building);
 
-
-			create Building_ign from: ign_file {
-				if not (self overlaps world) {
+			create building_ign from: shape_file_buildings_ign {
+				if !(self overlaps boundary[0]) {
 					do die;
 				}
 			}
 
-			write "Number of buildings ign created : "+ length(Building_ign);
+			write "Number of buildings ign created : "+ length(building_ign);
 
-			ask Building parallel: parallel {
-				list<Building_ign> neigh <- Building_ign overlapping self;
+			ask building parallel: parallel {
+				list<building_ign> neigh <- building_ign overlapping self;
 				if not empty(neigh) {
-					Building_ign bestCand;
+					building_ign bestCand;
 					if (length(neigh) = 1) {
 						bestCand <- first(neigh);
 					} else {
@@ -122,22 +104,17 @@ global {
 				}
 			}
 
-			create Building from: shape_file_pois with: [id::int(read("osm_id")), type::read("fclass")]{
-				if not (self overlaps world){
+			create building from: shape_file_buildings_poi with: [id::int(read("osm_id")), type::read("fclass")]{
+				if !(self overlaps boundary[0]) {
 					do die;
 				}
 
-				if not (id in list_of_id){
-
+				if !(id in list_of_id) {
 					list_of_id << id;
-
 					types_str <- type;
 					types << type;
-
-				}
-
-				else{ // fclass devient le type du bâtiment déjà existant
-					Building real_building <- Building  first_with (each.id = self.id);
+				} else { // fclass devient le type du bâtiment déjà existant
+					building real_building <- building first_with (each.id = self.id);
 					real_building.type <- type;
 					real_building.types << type;
 					real_building.types_str <- type + "," + real_building.types_str;
@@ -145,12 +122,11 @@ global {
 				}
 			}
 
-
-			ask Building where empty(each.types){
+			ask building where empty(each.types) {
 				do die;
 			}
 
-			ask Building parallel: parallel {
+			ask building parallel: parallel {
 				type <- first(types); //si le building a déjà un type dans le shapefile initial : on le garde en position 1. Sinon on prend celui de building_ign (USAGE1 ou USAGE2)
 
 				types_str <- type;
@@ -162,44 +138,61 @@ global {
 				}
 			}
 
-			ask Building_ign{
+			ask building_ign{
 				do die;
 			}
 
-			write("All buildings created and typed. Start cleaning roads");
+			write("Saving buildings");
+			save building to: cleaned_buildings_path type: shp 
+				attributes: ["id"::id,"type"::type, "types_str"::types_str ,"height"::height];
+		} else {
+			create building from: shape_file(cleaned_buildings_path);
+			write "buildings are already cleaned. Nothing to do.";
 		}
 
-
-		if roads{
+		if !file_exists(cleaned_roads_path) {
 			write("cleaning roads");
-			list<geometry> clean_lines <- clean_network(shape_file_roads.contents,3.0 , true, true); // peut prendre beaucoup de temps pour des zones étendues
-			write("road shapefile cleaned");
+//			list<geometry> clean_lines <- clean_network(shape_file_roads.contents,3.0 , true, true); // peut prendre beaucoup de temps pour des zones étendues
 
-			create road from: clean_lines with: [id::int(get("osm_id")), fclass::get("fclass"), maxspeed::int(get("maxspeed"))]{
-				if not (self overlaps world) {
+			create road from: shape_file_roads with: [id::int(get("osm_id")), fclass::get("fclass"), maxspeed::int(get("maxspeed"))]{
+				if !(self overlaps boundary[0]) {
 					do die;
 				}
+
+				if fclass = "motorway" or fclass = "motorway_link"{do die;} //routes innacessibles aux vélos
+
+				if fclass="trunk" or fclass="primary" or fclass="secondary" or 
+						fclass="tertiary" or fclass="bridleway" or fclass="cycleway"
+						or fclass="trunk_link" or fclass="primary_link" or fclass="secondary_link" {
+					speed_coeff <- 1.7;
+				}
+
+				if fclass="unclassified" or fclass="residential" or fclass="service" or fclass="track" {
+					speed_coeff <- 1.2;
+				}
+
+				if fclass="living_street" or fclass="pedestrian" or fclass="footway" or 
+						fclass="path" or fclass="steps" or fclass="unknown" {
+					speed_coeff <- 0.4;
+				}
 			}
-			write "Number of roads created : "+ length(road);
+			// Remove small disconnected subgraphs
+			graph road_graph <- main_connected_component(as_edge_graph(road));
+			ask road where !(each in road_graph.edges) {
+				do die;
+			}
 
-		}
-
-		if buildings{
-			write("Saving buildings");
-			save Building to: dataset_path + "buildings.shp" type: shp attributes: ["id"::id,"type"::type, "types_str"::types_str ,"height"::height];
-
-
-		}
-
-		if roads{
 			write("Saving roads");
-			save road to: dataset_path + "roads.shp" type: shp attributes: ["id"::id,"fclass"::fclass, "maxspeed"::maxspeed];
-
+			save road to: cleaned_roads_path type: shp attributes: ["id"::id, "fclass"::fclass,
+				"maxspeed"::maxspeed, "s_coeff"::speed_coeff];
+		} else {
+			create road from: shape_file(cleaned_roads_path);
+			write "Roads are already cleaned. Nothing to do.";
 		}
 	}
 }
 
-species Building_ign {
+species building_ign {
 	/*nature du bati; valeurs possibles:
 	 * Indifférenciée | Arc de triomphe | Arène ou théâtre antique | Industriel, agricole ou commercial |
 	 Chapelle | Château | Eglise | Fort, blockhaus, casemate | Monument | Serre | Silo | Tour, donjon | Tribune | Moulin à vent
@@ -216,24 +209,36 @@ species Building_ign {
 	int NB_ETAGES;// nombre d'étages
 	float HAUTEUR;
 }
-species Building {
+species building {
 	string type;
 	list<string> types;
 	string types_str;
 	float height;
 	int id;
+
+	aspect base {
+		draw shape color: #gray;
+	}
 }
 
-species road  {
+species road {
 	int id;
 	int maxspeed;
 	string fclass;
+	float speed_coeff <- 0.33;
 
 	aspect base {
 		draw shape color: color width: 2;
 	}
 }
 
+species boundary {}
 
-experiment generateGISdata type: gui {
+experiment preprocess type: gui {
+	output {
+		display city_display type: opengl {
+			species road aspect: base refresh: false;
+			species building aspect: base refresh: false;
+		}
+	}
 }
