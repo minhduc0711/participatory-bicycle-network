@@ -1,48 +1,62 @@
-# Participatory-bicycle-model
+# Participatory-bicycle-network
 
-This model generates a process of collecting pollution information from on-board sensors by an urban population of cyclists. To this end, an urban synthetic population of cyclists and its daily trips are simulated, and then coupled with a pollution model. The model uses demographical data, employment data, mobility survey data, points of interest dataset, and a network. The objective is to know whether or not the bicycle traffic can transcript urban pollution. 
+This model generates a process of collecting pollution information from on-board sensors by an urban population of cyclists. To this end, an urban synthetic population of cyclists and its daily trips are simulated, and then coupled with a pollution model. The model uses demographical data, employment data, mobility survey data, points of interest dataset, and a network. The objective is to know whether or not the bicycle traffic can transcript urban pollution.
 
 The model runs on GAMA-platform, which is a modeling environment for building spatially explicit agent-based simulations.
 
-# Getting started
+# Traffic simulation 
+The GAML code last worked with https://github.com/gama-platform/gama/tree/ca9d94a39c54544e594a12a47dd59f231e3af617.
 
-## Installing
+## Input data
+You should have a copy of `includes.zip` (not stored on GitHub due to its size).
+Extract it to the root dir.
+<!-- TODO: elaborate on the input files -->
 
-Download the GAMA-platform (GAMA1.8.2 with JDK version) from https://gama-platform.github.io/.
+## Running the GAMA simulation
+You should check [params.gaml](models/params.gaml) if you need to change some global simulation parameters.
+The notable ones are:
+* `city`: determines the shapefiles used. At the moment we have three cities:
+`Aix-en-Provence`, `Marseille` and `Toulouse`.
+* `number_of_sensors`: the number of cyclists who are able to record the pollution levels as they move (i.e. they are equipped with air quality sensors).
 
-## Running the model
+Execute the GAML files in the following order:
+1. [preprocess_shapefiles.gaml](models/preprocess_shapefiles.gaml): preprocess the raw shapefiles, outputs new shapefiles in `generated/city/preprocessed_shapefiles`.
+    * For more variety in the buildings, we combine data from OSM and IGN databases. Types of buildings are coupled between these two databases.
+    * Roads: extracted from OSM database, and we only keep roads that can be used by cyclists. A speed coefficient is added depending on the type of road adapt cyclists' speed. Many factors to determine cyclist's speed have been taken into account, like the slope of the road in the model 'Digital Elevation Model for roads.gaml'.
 
-The input data of the project is in the `includes` folder and the model codes are in the `models` folder.
+1. [create_cyclists_profiles.gaml](models/create_cyclists_profiles.gaml):
+generate information for a population of cyclists.
+    * The population is composed of workers, students and "leisure people". 
+    * Their living place, destination place and timetable are defined by data from [Mobiliscope](https://mobiliscope.cnrs.fr) and household surveys. 
+    * The resulting CSV is saved to `generated/the_city/synthetic_population`.
+    * Note that you can generate a test population which is 20 times smaller than the actual population, by setting the global param `test_population <- true`.
 
-1. Run the experiments in [1_Buildings_and_roads_environment.gaml](./models/1_Buildings_and_roads_environment.gaml) and [2_Adapt_roads_to_cyclists.gaml](models/2_Adapt_roads_to_cyclists.gaml) to produce the city environment (buildings and roads) which will be used by cyclists.
-    * Buildings: for more variety in the building data, we used both OSM and IGN databases. Types of buildings are coupled between these two databases.
-    * Roads: they are simply extracted from OSM database and adapted so that we only keep roads that can be used by cyclists. A speed coefficient is added depending on the type of road adapt cyclists' speed. Many factors to determine cyclist's speed have been taken into account, like the slope of the road in the model 'Digital Elevation Model for roads.gaml'.
+1. [Optional] [precompute_shortest_paths.gaml](models/precompute_shortest_paths.gaml): compute the shortest paths between all possible nodes in the road network. Might take some time but it will speed up the traffic simulation. However, an error will be thrown if the road network has too many nodes (due to maximum size of a GAMA matrix).
 
-1. Generate a synthetic population with the model [3_Synthetic_population.gaml](models/3_Synthetic_population.gaml).
-    * At the moment, only the populations of Marseille and Toulouse can be generated, but it is possible to generate the population of any city in France by retrieving the population data from [Mobiliscope](https://mobiliscope.cnrs.fr), and by rerunning the first step for the chosen city. 
-    * However, the rest of the model only takes into account the city of Marseille due to the lack of pollution data for other cities.
-    * The population is composed of workers, students and leisure people. Their living place, destination place and agenda are defined by data from Mobiliscope and household surveys. The synthetic population is saved under `results/the_city/synthetic_population` as a csv file.
-    * Note that you can generate a test population which is 20 times smaller than the actual population (useful if you do not want to wait too long).
-
-1. Simulate cyclists' trips with the experiment in [4_Bicycle_network_Marseille_travel_agents.gaml](models/4_Bicycle_network_Marseille_travel_agents.gaml).
+1. [simulate_traffic.gaml](models/simulate_traffic.gaml): simulate cyclists' movement around the city.
     * Cyclists' speed is chosen depending on the type of road they take.
-    * During the experiment, each path is generated and finally recorded under `results/Marseille/`.
-    * This model saves the shapefiles of each population's positions during the day in `results/Marseille/type_of_population`. You can see an overview of the generated population with the model `Synthetic population viewer.gaml`.
+    * Their trajectories (positions and timestamps) are saved as CSV files in `generated/city/type_of_population` (e.g. `generated/Toulouse/worker`). 
 
-1. Generate pollution level measurements (NO2, O3, PM10, PM25) made by each population of agent (worker, student or leisure) during their trips with the model [5_Synthetic_measures_from_agents_travels.gaml](models/5_Synthetic_measures_from_agents'_travels.gaml).
-    * Results are saved under `results/Marseille/measures_N.csv` (in which `N` is the number of sensors).
-    * Depending on a parameter, the model can generate measures for 100, 1000 or 5000 agents (representing the number of pollution sensors deployed to citizens in the city).
+1. [build_dataset.gaml](models/build_dataset.gaml): for each point in a cyclist's trajectory,
+compute the environmental features (taking into account certain radius around the point) and retrieve the pollution levels using the pollution rasters.
+This can be useful for training ML models to predict pollution levels in areas unexplored by cyclists.
+    * The resulting dataset is saved to `generated/city/measures_N.csv` (`N` is the number of cyclists equipped with sensors).
 
-1. Run [6_Environment_for_measures.gaml](models/6_Environment_for_measures.gaml) to generate environmental data with a radius of 50m for every measure point, in order to use for predict pollution levels in unexplored areas.
-    * The results of each measure's environment is saved in `results/Marseille/environment_of_measures_N_sensors.csv`.
+The other GAML files in [models/archived](models/archived) could have some use but
+they need to be rewrite to work with this new version.
 
-1. The models [7_Measures_to_predict.gaml](models/7_Measures_to_predict.gaml) and [8_Environment_for_measures_to_predict.gaml](models/8_Environment_for_measures_to_predict.gaml) generate test data.
-    * They are randomly chosen in the set of trips already generated.
-    * The target values (pollution measurements) are saved in `results/Marseille/measures_to_predict.csv`, and the environmental features is saved in `results/Marseille/environment_of_measures_to_predict.csv`
+## Predicting pollution levels using land-use regression
+After generating the dataset consisting of environmental features (e.g. building volumes, areas of nearby forest, distance to closest main road...) and pollution levels as targets,
+we can run [gam.R](regression/gam.R) to train GAM for predicting in unexplored areas.
+The required R packages are:
+* mgcv (implementation of GAMs)
+* dplyr (manipulate dataframes)
+* lubridate (used for cyclical encoding of timestamps)
 
-1. Create land use regression (LUR) models using the generated enviromental features coupled with temporal indicators to predict pollution levels.
-    * **However I could not achieve this step**: the regression I performed in the model [9_Regression_and_prediction.gaml](models/9_Regression_and_prediction.gaml) realizes a regression using the least squares method and then use it to predict the pollution level in places where other cyclist agents (the last quarter of cyclists for whom pollution was not measured) will go. This methods does not seem optimal. However, some suggestions are made in the Perspectives section of the report.
+## Rendez-vous for faulty sensor detection
+[This paper](https://link.springer.com/chapter/10.1007/978-3-319-03071-5_3) proposes the concept of a rendez-vous:
+two sensors make a rendez-vous when the set of temporally & spacially close measurement pairs is big enough.
+By computing the correlation in-between the rendez-vous pairs, we can detect if any sensors is generating incorrect measurements (when the correlation coefficient is smaller than usual).
+We attempted to implement this procedure in the Python notebook [rendez_vous.ipynb](rendez_vous.ipynb), but it does not seem to be able to detect faulty sensor since the relevant coefficients are still high.
 
-Other notes:
-* To validate the trips data, it can be useful to compare mean trips' length and duration. You can generate this information with the model [Travel_study.gaml](models/Travel_study.gaml). It saves all trips data in `results/Marseille/the_agent_population/travel_time.csv`.
-* You can also check each population's exposure to each pollutant with the model [Agents_exposure.gaml](models/Agents_exposure.gaml). For each agent, it saves pollution exposure such as maximum concentration met or mean exposure during trips.
+To try out the notebook, you need to install some required Python packages by running `pip install -r requirements.txt`.
