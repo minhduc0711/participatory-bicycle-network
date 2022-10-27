@@ -55,13 +55,12 @@ gam_models <- vector(mode="list", length=4)
 ptypes <- c("NO2", "O3", "PM10", "PM25")
 for (i in 1:length(ptypes)) {
     print(sprintf("Training GAM for target: %s", ptypes[i]))
-    # fmla <- sprintf("%s ~ s(lon, lat) +  s(sin.day) + s(cos.day) +
-    #                 s(buildings_volume) +
-    #                 s(voie_1) + s(voie_2) + s(voie_3) + s(voie_4) +
-    #                 s(road_0_4_width) + s(road_4_6_width) +
-    #                 s(bois) + s(foret) + s(haie)",
-    #                 ptypes[i])
-    fmla <- sprintf("%s ~ s(lon, lat) + s(sin.day) + s(cos.day)", ptypes[i])
+    fmla <- sprintf("%s ~ s(lon, lat) +  s(sin.day) + s(cos.day) +
+                    s(buildings_volume) +
+                    s(voie_1) + s(voie_2) + s(voie_3) + s(voie_4) +
+                    s(road_0_4_width) + s(road_4_6_width) +
+                    s(bois) + s(foret) + s(haie)",
+                    ptypes[i])
     fmla <- as.formula(fmla)
 
     # Identity link function works much better than log
